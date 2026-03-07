@@ -243,6 +243,11 @@ export default function SearchPage() {
         return null;
     };
 
+    const matchesProviderFilter = useCallback((result: typeof searchResults[number], providerName: string) => {
+        if (providerName === 'Local') return Boolean(result.inLibrary || result.provider === 'Local');
+        return result.provider === providerName;
+    }, []);
+
     // Memoize sorted so deps are stable — prevents poster effect from aborting itself every render
     const sorted = useMemo(() => {
         const qualOpt = QUALITY_OPTIONS.find(q => q.label === qualityFilter) || QUALITY_OPTIONS[0];
@@ -255,8 +260,8 @@ export default function SearchPage() {
                 if (sortBy === 'Size (Smallest)') return parseSize(a.size) - parseSize(b.size);
                 return 0;
             });
-        return providerFilter ? base.filter(r => r.provider === providerFilter) : base;
-    }, [searchResults, sortBy, providerFilter, qualityFilter]);
+        return providerFilter ? base.filter(r => matchesProviderFilter(r, providerFilter)) : base;
+    }, [searchResults, sortBy, providerFilter, qualityFilter, matchesProviderFilter]);
 
     // Group TV episodes — only when groupMode is on
     interface EpGroup { key: string; showName: string; season: number; episodes: typeof sorted; bestSeeders: number; }
@@ -441,7 +446,7 @@ export default function SearchPage() {
                         const isActive = providerFilter === log.name;
                         const isDone = log.status === 'done';
                         const count = isDone
-                            ? searchResults.filter(r => r.provider === log.name).length
+                            ? searchResults.filter(r => matchesProviderFilter(r, log.name)).length
                             : 0;
                         return (
                             <button
