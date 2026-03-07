@@ -535,11 +535,46 @@ const TRENDING = [
     'Sholay', 'Lagaan', 'Rang De Basanti', 'Queen', 'Barfi', 'Zindagi Na Milegi Dobara'
 ];
 
-app.get('/api/suggestions', (req, res) => {
+app.get('/api/suggestions', async (req, res) => {
     const q = (req.query.q || '').toLowerCase().trim();
     if (!q || q.length < 2) return res.json([]);
-    const matches = TRENDING.filter(t => t.toLowerCase().includes(q)).slice(0, 8);
-    res.json(matches);
+
+    // 1. Fuzzy match against TRENDING (includes partial + transposition tolerance)
+    const scored = TRENDING.map(t => {
+        const tl = t.toLowerCase();
+        // exact substring
+        if (tl.includes(q)) return { t, score: 2 };
+        // every word in q appears somewhere in t
+        const words = q.split(/\s+/).filter(Boolean);
+        if (words.every(w => tl.includes(w))) return { t, score: 1.5 };
+        // first word match (user typed start of title)
+        if (tl.startsWith(words[0])) return { t, score: 1 };
+        // single-char tolerance (drop last char of query)
+        if (q.length > 3 && tl.includes(q.slice(0, -1))) return { t, score: 0.8 };
+        return null;
+    }).filter(Boolean).sort((a, b) => b.score - a.score).map(x => x.t);
+
+    // 2. Live iTunes suggestions to supplement (best-effort, fires in parallel)
+    let itunesTitles = [];
+    try {
+        const result = await new Promise((resolve) => {
+            const qs = new URLSearchParams({ term: q, media: 'all', limit: '6', country: 'US' });
+            const req2 = https.get(`https://itunes.apple.com/search?${qs}`, { headers: { Accept: 'application/json' }, timeout: 5000 }, (r) => {
+                const chunks = [];
+                r.on('data', c => chunks.push(c));
+                r.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { resolve({ results: [] }); } });
+            });
+            req2.on('error', () => resolve({ results: [] }));
+            req2.on('timeout', () => { req2.destroy(); resolve({ results: [] }); });
+        });
+        itunesTitles = (result.results || [])
+            .map(r => r.trackName || r.collectionName || r.artistName)
+            .filter(Boolean)
+            .filter(t => !scored.some(s => s.toLowerCase() === t.toLowerCase()));
+    } catch { /* ignore */ }
+
+    const combined = [...new Set([...scored, ...itunesTitles])].slice(0, 10);
+    res.json(combined);
 });
 
 // ─── Search with per-provider progress ───
@@ -871,39 +906,148 @@ app.get('/api/torrents/:infoHash/files', (req, res) => {
     res.json(files);
 });
 
-// ─── TMDB Poster ───
+// ─── Poster search (TVmaze primary + iTunes fallback, no API keys needed) ───
+function httpGet(urlStr, timeout = 9000) {
+    return new Promise((resolve) => {
+        const mod = urlStr.startsWith('https') ? https : http;
+        const req2 = mod.get(urlStr, { headers: { Accept: 'application/json', 'User-Agent': 'VortexApp/1.0' }, timeout }, (r) => {
+            const chunks = [];
+            r.on('data', c => chunks.push(c));
+            r.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { resolve(null); } });
+        });
+        req2.on('error', () => resolve(null));
+        req2.on('timeout', () => { req2.destroy(); resolve(null); });
+    });
+}
+
+function httpPost(urlStr, body, timeout = 9000) {
+    return new Promise((resolve) => {
+        const payload = Buffer.from(JSON.stringify(body));
+        const u = new URL(urlStr);
+        const req2 = https.request({
+            hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': payload.length, Accept: 'application/json', 'User-Agent': 'VortexApp/1.0' },
+            timeout,
+        }, (r) => {
+            const chunks = [];
+            r.on('data', c => chunks.push(c));
+            r.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { resolve(null); } });
+        });
+        req2.on('error', () => resolve(null));
+        req2.on('timeout', () => { req2.destroy(); resolve(null); });
+        req2.write(payload);
+        req2.end();
+    });
+}
+
+function cleanTitle(q) {
+    let s = q.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/[._]/g, ' ');
+    const yearMatch = s.match(/\b((?:19|20)\d{2})\b/);
+    const year = yearMatch ? yearMatch[1] : '';
+    const cutIdx = s.search(/\b((?:19|20)\d{2}|720p|1080p|2160p|4k|bluray|bdrip|hdtv|webrip|web[-. ]?dl|x264|x265|hevc|xvid|remux|repack|proper|s\d{1,2}e\d{1,2}|ep\d+)\b/i);
+    s = (cutIdx > 2 ? s.slice(0, cutIdx) : s).replace(/\s*-\s*[A-Za-z0-9]{2,}$/, '').replace(/\s+/g, ' ').trim();
+    return { clean: s, year };
+}
+
 app.get('/api/poster', async (req, res) => {
     const q = (req.query.q || '').toString().trim();
-    const year = (req.query.year || '').toString().trim();
-    const apiKey = settings.tmdbApiKey || '';
     if (!q) return res.status(400).json({ error: 'Missing query' });
-    if (!apiKey) return res.status(400).json({ error: 'NO_API_KEY' });
-    const qs = new URLSearchParams({ api_key: apiKey, query: q, language: 'en-US', page: '1', include_adult: 'false' });
-    if (year) qs.set('year', year);
+    const { clean, year } = cleanTitle(q);
+    if (!clean) return res.json({ poster: null });
+
+    // ── 1. TVmaze — live-action TV & KDrama (free, no key) ──
     try {
-        const result = await new Promise((resolve, reject) => {
-            const req2 = https.get(`https://api.themoviedb.org/3/search/multi?${qs.toString()}`, { headers: { Accept: 'application/json' }, timeout: 8000 }, (r) => {
-                const chunks = [];
-                r.on('data', c => chunks.push(c));
-                r.on('end', () => {
-                    try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
-                    catch { reject(new Error('parse error')); }
+        const tvData = await httpGet(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(clean)}`);
+        if (Array.isArray(tvData) && tvData.length > 0) {
+            let best = null, bestScore = -1;
+            for (const { score, show } of tvData) {
+                if (!show?.image?.original && !show?.image?.medium) continue;
+                const nameMatch = (show.name || '').toLowerCase() === clean.toLowerCase() ? 10 : score * 5;
+                const yearBonus = year && (show.premiered || '').startsWith(year) ? 3 : 0;
+                const total = nameMatch + yearBonus;
+                if (total > bestScore) { bestScore = total; best = show; }
+            }
+            // Require a confident match — avoids returning wrong TV shows for anime/movies
+            if (best && bestScore >= 7) {
+                return res.json({
+                    poster: best.image.original || best.image.medium,
+                    title: best.name,
+                    year: (best.premiered || '').slice(0, 4),
+                    type: 'tvShow',
                 });
-            });
-            req2.on('error', reject);
-            req2.on('timeout', () => { req2.destroy(); reject(new Error('timeout')); });
-        });
-        const hit = (result.results || []).find(r => r.poster_path);
-        if (!hit) return res.json({ poster: null });
-        res.json({
-            poster: `https://image.tmdb.org/t/p/w300${hit.poster_path}`,
-            title: hit.title || hit.name,
-            year: (hit.release_date || hit.first_air_date || '').slice(0, 4),
-            type: hit.media_type,
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+            }
+        }
+    } catch { /* fall through */ }
+
+    // ── 2. AniList — anime series + movies, very accurate (free GraphQL, no key) ──
+    try {
+        const alQuery = 'query($s:String){Page(perPage:5){media(search:$s,type:ANIME){title{romaji english}coverImage{extraLarge large}startDate{year}}}}';
+        const alData = await httpPost('https://graphql.anilist.co', { query: alQuery, variables: { s: clean } });
+        const alList = alData?.data?.Page?.media || [];
+        if (alList.length > 0) {
+            let best = null, bestScore = -1;
+            for (const a of alList) {
+                const img = a.coverImage?.extraLarge || a.coverImage?.large;
+                if (!img) continue;
+                const cl = clean.toLowerCase();
+                const titles = [a.title?.english, a.title?.romaji].filter(Boolean).map(t => t.toLowerCase());
+                const nameMatch = titles.some(t => t === cl) ? 10
+                    : titles.some(t => t.includes(cl) || cl.includes(t)) ? 5 : 0;
+                const yearBonus = year && String(a.startDate?.year) === year ? 3 : 0;
+                const total = nameMatch + yearBonus;
+                if (total > bestScore) { bestScore = total; best = { img, title: a.title?.english || a.title?.romaji, year: String(a.startDate?.year || '') }; }
+            }
+            if (best && bestScore >= 5) {
+                return res.json({ poster: best.img, title: best.title, year: best.year, type: 'anime' });
+            }
+        }
+    } catch { /* fall through */ }
+
+    // ── 3. Jikan (MyAnimeList unofficial) — anime series + movies (free, no key) ──
+    try {
+        const jData = await httpGet(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(clean)}&limit=5&sfw`);
+        if (Array.isArray(jData?.data) && jData.data.length > 0) {
+            let best = null, bestScore = -1;
+            for (const a of jData.data) {
+                const img = a.images?.jpg?.large_image_url || a.images?.jpg?.image_url;
+                if (!img) continue;
+                const titles = [a.title, a.title_english, ...(a.titles || []).map(t => t.title)].filter(Boolean);
+                const cl = clean.toLowerCase();
+                const nameMatch = titles.some(t => t.toLowerCase() === cl) ? 10
+                    : titles.some(t => t.toLowerCase().includes(cl) || cl.includes(t.toLowerCase())) ? 5 : 0;
+                const yearBonus = year && String(a.year) === year ? 3 : 0;
+                const total = nameMatch + yearBonus;
+                if (total > bestScore) { bestScore = total; best = { img, title: a.title_english || a.title, year: String(a.year || '') }; }
+            }
+            if (best && bestScore >= 5) {
+                return res.json({ poster: best.img, title: best.title, year: best.year, type: 'anime' });
+            }
+        }
+    } catch { /* fall through */ }
+
+    // ── 4. Kitsu — anime fallback (free, no key) ──
+    try {
+        const kData = await httpGet(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(clean)}&page[limit]=5`);
+        if (Array.isArray(kData?.data) && kData.data.length > 0) {
+            let best = null, bestScore = -1;
+            for (const a of kData.data) {
+                const img = a.attributes?.posterImage?.large || a.attributes?.posterImage?.medium;
+                if (!img) continue;
+                const cl = clean.toLowerCase();
+                const titleEn = (a.attributes?.titles?.en || a.attributes?.titles?.en_jp || a.attributes?.canonicalTitle || '').toLowerCase();
+                const nameMatch = titleEn === cl ? 10 : (titleEn.includes(cl) || cl.includes(titleEn)) ? 5 : 0;
+                const startYear = (a.attributes?.startDate || '').slice(0, 4);
+                const yearBonus = year && startYear === year ? 3 : 0;
+                const total = nameMatch + yearBonus;
+                if (total > bestScore) { bestScore = total; best = { img, title: a.attributes?.canonicalTitle || clean, year: startYear }; }
+            }
+            if (best && bestScore >= 5) {
+                return res.json({ poster: best.img, title: best.title, year: best.year, type: 'anime' });
+            }
+        }
+    } catch { /* fall through */ }
+
+    res.json({ poster: null });
 });
 
 // ─── Subtitles (OpenSubtitles.com REST v2) ───

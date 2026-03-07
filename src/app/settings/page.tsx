@@ -211,34 +211,22 @@ export default function SettingsPage() {
                     </div>
                 </section>
 
-                {/* TMDB */}
+                {/* Posters info */}
                 <section className="rounded-2xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
                     <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-yellow-500/10 border border-yellow-500/10 flex items-center justify-center text-xs font-black text-yellow-400">T</div>
+                        <div className="w-8 h-8 rounded-xl bg-teal/10 border border-teal/10 flex items-center justify-center text-xs font-black text-teal">🎬</div>
                         <div>
-                            <h2 className="text-sm font-bold text-white">TMDB Posters</h2>
-                            <p className="text-[11px] text-text-3">The Movie Database API key for movie/show posters in Library</p>
+                            <h2 className="text-sm font-bold text-white">Posters</h2>
+                            <p className="text-[11px] text-text-3">Movie &amp; show artwork shown in Library and Search</p>
                         </div>
                     </div>
-                    <div className="p-6 space-y-3">
-                        <div className="space-y-2">
-                            <label className="text-xs text-text-2 font-medium">API Key (v3 auth)</label>
-                            <input
-                                type="password"
-                                value={localSettings.tmdbApiKey || ""}
-                                onChange={e => setLocalSettings({ ...localSettings, tmdbApiKey: e.target.value })}
-                                placeholder="Paste your TMDB API key…"
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-white placeholder-text-3 focus:outline-none focus:border-yellow-500/40 font-mono text-sm transition-all"
-                            />
+                    <div className="p-6">
+                        <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-teal/[0.06] border border-teal/15">
+                            <span className="text-teal text-lg shrink-0">✓</span>
+                            <p className="text-[12px] text-text-2 leading-relaxed">
+                                Posters are fetched automatically from <span className="text-teal font-bold">TVmaze</span> (TV &amp; KDrama), <span className="text-teal font-bold">Jikan/MyAnimeList</span> and <span className="text-teal font-bold">Kitsu</span> (anime) — completely free, no account or API key required. They load as skeletons and fill in as results appear.
+                            </p>
                         </div>
-                        <p className="text-[11px] text-text-3 leading-relaxed">
-                            Free API key from{" "}
-                            <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer"
-                                className="text-yellow-400 hover:text-yellow-300 underline underline-offset-2">
-                                themoviedb.org/settings/api
-                            </a>
-                            {" "}— create a free account, go to Settings → API, request a Developer key.
-                        </p>
                     </div>
                 </section>
             </div>

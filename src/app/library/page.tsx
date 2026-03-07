@@ -17,12 +17,17 @@ const LANGS = [
 ];
 
 function cleanVideoName(filename: string): string {
-    return filename
-        .replace(/\.[^.]+$/, '')
-        .replace(/[\._]/g, ' ')
-        .replace(/\b(1080p|720p|480p|2160p|4k|bluray|bdrip|webrip|web[-.]?dl|hdtv|dvdrip|x264|x265|hevc|avc|aac|ac3|dts|xvid|mkv|mp4|avi|hdrip|remux|proper|repack|extended|theatrical|unrated)\b/gi, '')
-        .replace(/\s{2,}/g, ' ')
-        .trim();
+    let s = filename
+        .replace(/\.[a-z0-9]{2,4}$/i, '')   // strip extension
+        .replace(/\[.*?\]/g, ' ')            // strip [EtHD] [720p] [Group]
+        .replace(/\(.*?\)/g, ' ')            // strip (2016) etc in parens
+        .replace(/[\._]/g, ' ');             // dots/underscores → spaces
+    // Cut from first quality/year tag onward
+    const cut = s.search(/\b((?:19|20)\d{2}|1080p|720p|480p|2160p|4k|bluray|bdrip|webrip|web[-. ]?dl|hdtv|dvdrip|x264|x265|hevc|avc|xvid|remux|proper|repack)\b/i);
+    if (cut > 2) s = s.slice(0, cut);
+    // Strip trailing release-group like "-HAiKU" or "- YIFY"
+    s = s.replace(/\s*-\s*[A-Za-z0-9]{2,}$/, '');
+    return s.replace(/\s{2,}/g, ' ').trim();
 }
 
 interface SubResult {
@@ -87,8 +92,8 @@ export default function LibraryPage() {
     const [subDownloading, setSubDownloading] = useState<string | null>(null);
     const [subMsg, setSubMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
-    // Poster state
-    const [posters, setPosters] = useState<Record<string, string>>({});
+    // Poster state: 'loading' | url string | null (no poster found)
+    const [posters, setPosters] = useState<Record<string, string | null | 'loading'>>({});
     const posterAbortRef = useRef<AbortController | null>(null);
 
     const searchSubs = useCallback(async (q?: string, lang?: string, itemOverride?: { name: string; path: string; isDir: boolean }) => {
@@ -154,8 +159,6 @@ export default function LibraryPage() {
         setSubDownloading(null);
     }, [subItem]);
 
-    // Fetch TMDB posters — runs after topLevel is computed (see below)
-
     // Close sort dropdown on outside click
     useEffect(() => {
         if (!sortOpen) return;
@@ -196,33 +199,58 @@ export default function LibraryPage() {
         });
     }, [library]);
 
-    // Fetch TMDB posters for top-level video/folder items
+    // Fetch posters — TVmaze (TV/anime/drama) + iTunes (movies), shows skeleton while loading
     useEffect(() => {
         if (topLevel.length === 0) return;
         const needsPoster = topLevel.filter(item =>
-            (item.category === 'Video' || item.isDir) && !posters[item.name]
+            (item.category === 'Video' || item.isDir) && posters[item.name] === undefined
         );
         if (needsPoster.length === 0) return;
+
+        // Mark as loading immediately so skeletons appear
+        setPosters(prev => {
+            const next = { ...prev };
+            needsPoster.forEach(item => { if (next[item.name] === undefined) next[item.name] = 'loading'; });
+            return next;
+        });
 
         if (posterAbortRef.current) posterAbortRef.current.abort();
         posterAbortRef.current = new AbortController();
         const signal = posterAbortRef.current.signal;
+        // Track names we started so cleanup can reset them if aborted
+        const startedNames = new Set(needsPoster.map(i => i.name));
 
+        // Fetch in parallel batches of 4 for speed
         (async () => {
-            for (const item of needsPoster) {
+            const BATCH = 4;
+            for (let i = 0; i < needsPoster.length; i += BATCH) {
                 if (signal.aborted) break;
-                const q = cleanVideoName(item.name);
-                if (!q) continue;
-                try {
-                    const r = await axios.get(`${API_BASE}/api/poster?q=${encodeURIComponent(q)}`, { signal, timeout: 8000 });
-                    if (r.data?.poster) {
-                        setPosters(prev => ({ ...prev, [item.name]: r.data.poster }));
+                const batch = needsPoster.slice(i, i + BATCH);
+                await Promise.all(batch.map(async item => {
+                    const q = cleanVideoName(item.name);
+                    if (!q) { setPosters(prev => ({ ...prev, [item.name]: null })); return; }
+                    try {
+                        const r = await axios.get(`${API_BASE}/api/poster?q=${encodeURIComponent(q)}`, { signal, timeout: 12000 });
+                        setPosters(prev => ({ ...prev, [item.name]: r.data?.poster ?? null }));
+                    } catch {
+                        if (!signal.aborted) setPosters(prev => ({ ...prev, [item.name]: null }));
                     }
-                } catch { /* ignore — no TMDB key or not found */ }
-                await new Promise(res => setTimeout(res, 150));
+                }));
+                if (i + BATCH < needsPoster.length) await new Promise(res => setTimeout(res, 150));
             }
         })();
-        return () => { posterAbortRef.current?.abort(); };
+
+        return () => {
+            posterAbortRef.current?.abort();
+            // Reset any still-loading items back to undefined so next run re-fetches them
+            setPosters(prev => {
+                const next = { ...prev };
+                for (const name of startedNames) {
+                    if (next[name] === 'loading') delete next[name];
+                }
+                return next;
+            });
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [topLevel]);
 
@@ -413,12 +441,16 @@ export default function LibraryPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {filtered.map((item, idx) => (
                         <div key={idx} className="group rounded-2xl bg-white/[0.02] border border-white/[0.04] hover:border-white/[0.08] hover:bg-white/[0.04] transition-all flex flex-col gap-0 overflow-hidden">
-                            {/* Poster or icon banner */}
-                            {posters[item.name] ? (
+                            {/* Poster or skeleton or icon banner */}
+                            {(item.category === 'Video' || item.isDir) && posters[item.name] === 'loading' ? (
+                                <div className="w-full aspect-[2/1] bg-white/[0.04] animate-pulse rounded-t-xl flex items-center justify-center">
+                                    <svg className="w-6 h-6 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                </div>
+                            ) : typeof posters[item.name] === 'string' && posters[item.name] !== 'loading' ? (
                                 <div className="relative w-full aspect-[2/1] overflow-hidden bg-black/30">
-                                    <img src={posters[item.name]} alt={item.name}
+                                    <img src={posters[item.name] as string} alt={item.name}
                                         className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
-                                        onError={() => setPosters(prev => { const n = { ...prev }; delete n[item.name]; return n; })}
+                                        onError={() => setPosters(prev => ({ ...prev, [item.name]: null }))}
                                     />
                                     <div className="absolute inset-0 bg-gradient-to-t from-[#0e0e1a]/80 via-transparent to-transparent" />
                                     <span className={`absolute top-2 right-2 px-2 py-0.5 rounded-lg text-[9px] font-bold border ${CATEGORY_COLORS[item.category] || CATEGORY_COLORS.Other}`}>

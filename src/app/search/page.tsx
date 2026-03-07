@@ -41,6 +41,11 @@ export default function SearchPage() {
     const [errorId, setErrorId] = useState<number | null>(null);
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
     const [groupMode, setGroupMode] = useState(true); // toggle grouping on/off
+    // poster: 'loading' | url | null per group key / res.id
+    const [posters, setPosters] = useState<Record<string, string | null | 'loading'>>({});
+    // bulk adding: group key being serially added
+    const [bulkAddingKey, setBulkAddingKey] = useState<string | null>(null);
+    const [bulkAddedKeys, setBulkAddedKeys] = useState<Set<string>>(new Set());
 
     const [suggestions, setSuggestions] = useState<string[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -192,33 +197,53 @@ export default function SearchPage() {
         return val / 1024;
     };
 
-    // Detect TV episode and extract parts
+    // Detect TV episode — handles S01E01, 1x01, anime "- 01", EP01 formats
     const parseEpisode = (title: string): { showName: string; season: number; episode: number; episodeKey: string } | null => {
-        // Match S01E01, S01E01-E02, 1x01, etc.
+        // S01E01 or S1E1
         const m = title.match(/^(.+?)\s*[Ss](\d{1,2})[Ee](\d{1,2})/);
         if (m) {
-            const showName = m[1].replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim();
+            const showName = m[1].replace(/[._\[\]()]/g, ' ').replace(/\s+/g, ' ').trim();
+            if (!showName) return null;
             return { showName, season: parseInt(m[2]), episode: parseInt(m[3]), episodeKey: `${showName}__S${m[2].padStart(2, '0')}` };
         }
-        // Match Show.Name.1x01
+        // 1x01 format
         const m2 = title.match(/^(.+?)\s*(\d{1,2})x(\d{2})/);
         if (m2) {
-            const showName = m2[1].replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim();
+            const showName = m2[1].replace(/[._\[\]()]/g, ' ').replace(/\s+/g, ' ').trim();
+            if (!showName) return null;
             return { showName, season: parseInt(m2[2]), episode: parseInt(m2[3]), episodeKey: `${showName}__S${m2[2].padStart(2, '0')}` };
+        }
+        // Anime: "Show Name - 01" or "[Group] Show Name - 12 [720p]"
+        const m3 = title.match(/^(?:\[.+?\]\s*)?(.+?)\s*[-–—]\s*(\d{2,3})\s*(?:\[|$|\(|v\d)/);
+        if (m3) {
+            const showName = m3[1].replace(/[._\[\]()]/g, ' ').replace(/\s+/g, ' ').trim();
+            const ep = parseInt(m3[2]);
+            if (!showName || ep > 600) return null; // avoid matching year
+            return { showName, season: 1, episode: ep, episodeKey: `${showName}__S01` };
+        }
+        // EP01 without season tag
+        const m4 = title.match(/^(.+?)\s*[Ee][Pp]?(\d{1,3})(?:\D|$)/);
+        if (m4) {
+            const showName = m4[1].replace(/[._\[\]()]/g, ' ').replace(/\s+/g, ' ').trim();
+            if (!showName) return null;
+            return { showName, season: 1, episode: parseInt(m4[2]), episodeKey: `${showName}__S01` };
         }
         return null;
     };
 
-    const baseSorted = [...searchResults].sort((a, b) => {
-        if (sortBy === 'Seeders (Most)') return b.seeders - a.seeders;
-        if (sortBy === 'Seeders (Least)') return a.seeders - b.seeders;
-        if (sortBy === 'Size (Largest)') return parseSize(b.size) - parseSize(a.size);
-        if (sortBy === 'Size (Smallest)') return parseSize(a.size) - parseSize(b.size);
-        return 0;
-    });
-    const sorted = providerFilter ? baseSorted.filter(r => r.provider === providerFilter) : baseSorted;
+    // Memoize sorted so deps are stable — prevents poster effect from aborting itself every render
+    const sorted = useMemo(() => {
+        const base = [...searchResults].sort((a, b) => {
+            if (sortBy === 'Seeders (Most)') return b.seeders - a.seeders;
+            if (sortBy === 'Seeders (Least)') return a.seeders - b.seeders;
+            if (sortBy === 'Size (Largest)') return parseSize(b.size) - parseSize(a.size);
+            if (sortBy === 'Size (Smallest)') return parseSize(a.size) - parseSize(b.size);
+            return 0;
+        });
+        return providerFilter ? base.filter(r => r.provider === providerFilter) : base;
+    }, [searchResults, sortBy, providerFilter]);
 
-    // Group TV episodes — only when groupMode is on and not sorted by anything specific
+    // Group TV episodes — only when groupMode is on
     interface EpGroup { key: string; showName: string; season: number; episodes: typeof sorted; bestSeeders: number; }
     const { flatItems, groups } = useMemo<{ flatItems: typeof sorted; groups: Map<string, EpGroup> }>(() => {
         if (!groupMode) return { flatItems: sorted, groups: new Map() };
@@ -229,7 +254,14 @@ export default function SearchPage() {
             if (ep) {
                 const existing = groups.get(ep.episodeKey);
                 if (existing) {
-                    existing.episodes.push(r);
+                    // Deduplicate same episode number — keep best-seeded, discard duplicates
+                    const dupIdx = existing.episodes.findIndex(e => parseEpisode(e.title)?.episode === ep.episode);
+                    if (dupIdx !== -1) {
+                        // Replace if current has more seeds
+                        if (r.seeders > existing.episodes[dupIdx].seeders) existing.episodes[dupIdx] = r;
+                    } else {
+                        existing.episodes.push(r);
+                    }
                     if (r.seeders > existing.bestSeeders) existing.bestSeeders = r.seeders;
                 } else {
                     groups.set(ep.episodeKey, { key: ep.episodeKey, showName: ep.showName, season: ep.season, episodes: [r], bestSeeders: r.seeders });
@@ -238,7 +270,7 @@ export default function SearchPage() {
                 flatItems.push(r);
             }
         }
-        // Sort episodes within each group
+        // Sort episodes within each group by episode number
         for (const g of groups.values()) {
             g.episodes.sort((a, b) => {
                 const ea = parseEpisode(a.title);
@@ -255,6 +287,55 @@ export default function SearchPage() {
         n.has(key) ? n.delete(key) : n.add(key);
         return n;
     });
+
+    // Reset posters when search is cleared
+    useEffect(() => {
+        if (searchResults.length === 0) setPosters({});
+    }, [searchResults]);
+
+    // Fetch posters for TV groups and first 10 flat items whenever results change
+    useEffect(() => {
+        const toFetch: { key: string; query: string }[] = [];
+        [...groups.values()].forEach(g => {
+            if (posters[g.key] === undefined) toFetch.push({ key: g.key, query: g.showName });
+        });
+        flatItems.slice(0, 10).forEach(r => {
+            const k = `flat_${r.id}`;
+            if (posters[k] === undefined) toFetch.push({ key: k, query: r.title });
+        });
+        if (toFetch.length === 0) return;
+        setPosters(prev => {
+            const next = { ...prev };
+            toFetch.forEach(({ key }) => { if (next[key] === undefined) next[key] = 'loading'; });
+            return next;
+        });
+        const controller = new AbortController();
+        (async () => {
+            for (const { key, query } of toFetch) {
+                if (controller.signal.aborted) break;
+                try {
+                    const r = await fetch(`http://localhost:3001/api/poster?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+                    const data = await r.json();
+                    setPosters(prev => ({ ...prev, [key]: data?.poster ?? null }));
+                } catch { if (!controller.signal.aborted) setPosters(prev => ({ ...prev, [key]: null })); }
+                await new Promise(res => setTimeout(res, 100));
+            }
+        })();
+        return () => controller.abort();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [groups, flatItems]);
+
+    // Serial bulk-add all episodes in a group one by one
+    const handleAddAll = async (group: { key: string; episodes: typeof sorted }) => {
+        if (bulkAddingKey === group.key) return;
+        setBulkAddingKey(group.key);
+        for (const r of group.episodes) {
+            await handleAdd(r.id);
+            await new Promise(res => setTimeout(res, 400));
+        }
+        setBulkAddingKey(null);
+        setBulkAddedKeys(prev => new Set(prev).add(group.key));
+    };
 
     return (
         <div className="max-w-5xl mx-auto space-y-6">
@@ -423,6 +504,10 @@ export default function SearchPage() {
                         {[...groups.values()].map(group => {
                             const isExpanded = expandedGroups.has(group.key);
                             const epCount = group.episodes.length;
+                            const posterKey = group.key;
+                            const posterUrl = posters[posterKey];
+                            const isBulkAdding = bulkAddingKey === group.key;
+                            const isBulkDone = bulkAddedKeys.has(group.key);
                             return (
                                 <div key={group.key} className="rounded-2xl bg-white/[0.02] border border-accent/10 overflow-hidden">
                                     {/* Group header — div not button to avoid nested button violation */}
@@ -430,11 +515,18 @@ export default function SearchPage() {
                                         role="button" tabIndex={0}
                                         onClick={() => toggleGroup(group.key)}
                                         onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && toggleGroup(group.key)}
-                                        className="w-full flex items-center gap-4 p-5 hover:bg-white/[0.03] transition-all cursor-pointer select-none">
-                                        <div className="w-9 h-9 rounded-xl bg-accent/10 border border-accent/15 flex items-center justify-center shrink-0">
-                                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
-                                                <rect x="1" y="2" width="14" height="10" rx="2" /><path d="M5 14h6M8 12v2" />
-                                            </svg>
+                                        className="w-full flex items-center gap-4 p-4 hover:bg-white/[0.03] transition-all cursor-pointer select-none">
+                                        {/* Poster thumbnail / skeleton / fallback icon */}
+                                        <div className="shrink-0 w-12 h-16 rounded-xl overflow-hidden bg-accent/10 border border-accent/15 flex items-center justify-center">
+                                            {posterUrl === 'loading' ? (
+                                                <div className="w-full h-full bg-white/[0.05] animate-pulse" />
+                                            ) : typeof posterUrl === 'string' ? (
+                                                <img src={posterUrl} alt={group.showName} className="w-full h-full object-cover" onError={() => setPosters(prev => ({ ...prev, [posterKey]: null }))} />
+                                            ) : (
+                                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
+                                                    <rect x="1" y="2" width="14" height="10" rx="2" /><path d="M5 14h6M8 12v2" />
+                                                </svg>
+                                            )}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <h3 className="text-white font-bold truncate">{group.showName}</h3>
@@ -445,12 +537,16 @@ export default function SearchPage() {
                                                 <span className="mx-1.5 opacity-30">·</span>
                                                 best: <span className="text-teal font-mono font-bold">{group.bestSeeders} seeds</span>
                                             </p>
+                                            {isBulkAdding && (
+                                                <p className="text-[10px] text-accent/70 mt-1 animate-pulse">Adding episodes one by one…</p>
+                                            )}
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
                                             <button
-                                                onClick={e => { e.stopPropagation(); group.episodes.forEach(r => handleAdd(r.id)); }}
-                                                className="px-4 py-2 rounded-xl text-xs font-bold bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white transition-all">
-                                                All
+                                                onClick={e => { e.stopPropagation(); handleAddAll(group); }}
+                                                disabled={isBulkAdding || isBulkDone}
+                                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${isBulkDone ? 'bg-teal/15 text-teal border border-teal/20' : isBulkAdding ? 'bg-accent/10 text-accent/50 border border-accent/15 cursor-wait' : 'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'}`}>
+                                                {isBulkDone ? '✓ All Added' : isBulkAdding ? 'Adding…' : `+ All ${epCount}`}
                                             </button>
                                             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
                                                 className={`text-text-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
@@ -480,9 +576,9 @@ export default function SearchPage() {
                                                         </div>
                                                         <button onClick={() => handleAdd(res.id)} disabled={addingId === res.id || addedIds.has(res.id)}
                                                             className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
-                                                                    errorId === res.id ? 'bg-red-500/15 text-red-400' :
-                                                                        addingId === res.id ? 'bg-accent/10 text-accent/60' :
-                                                                            'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
+                                                                errorId === res.id ? 'bg-red-500/15 text-red-400' :
+                                                                    addingId === res.id ? 'bg-accent/10 text-accent/60' :
+                                                                        'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
                                                                 }`}>
                                                             {addedIds.has(res.id) ? '✓' : errorId === res.id ? '✗' : addingId === res.id ? '...' : '+'}
                                                         </button>
@@ -496,126 +592,140 @@ export default function SearchPage() {
                         })}
 
                         {/* Flat results (movies + ungrouped) */}
-                        {flatItems.map((res) => (
-                            <div key={res.id} className="rounded-2xl bg-white/[0.02] border border-white/[0.04] overflow-hidden transition-all">
-                                {/* Result Row */}
-                                <div className="group flex items-center gap-4 p-5 hover:bg-white/[0.03] transition-all">
-                                    <div className="flex-1 min-w-0 space-y-1.5">
-                                        <h3 className="text-white font-bold group-hover:text-accent transition-colors truncate">{res.title}</h3>
-                                        <div className="flex items-center gap-3 text-xs">
-                                            <span className="text-text-3 font-mono">{res.size}</span>
-                                            <span className="flex items-center gap-1">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-teal" />
-                                                <span className="text-teal font-bold">{res.seeders}</span>
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-warning" />
-                                                <span className="text-warning font-bold">{res.leechers}</span>
-                                            </span>
-                                            <span className="text-text-3/50 uppercase tracking-widest text-[9px]">{res.provider}</span>
+                        {flatItems.map((res) => {
+                            const flatKey = `flat_${res.id}`;
+                            const flatPoster = posters[flatKey];
+                            return (
+                                <div key={res.id} className="rounded-2xl bg-white/[0.02] border border-white/[0.04] overflow-hidden transition-all">
+                                    {/* Result Row */}
+                                    <div className="group flex items-center gap-4 p-4 hover:bg-white/[0.03] transition-all">
+                                        {/* Poster thumbnail */}
+                                        <div className="shrink-0 w-10 h-14 rounded-lg overflow-hidden bg-white/[0.04] border border-white/[0.06] flex items-center justify-center">
+                                            {flatPoster === 'loading' ? (
+                                                <div className="w-full h-full bg-white/[0.05] animate-pulse" />
+                                            ) : typeof flatPoster === 'string' ? (
+                                                <img src={flatPoster} alt={res.title} className="w-full h-full object-cover" onError={() => setPosters(prev => ({ ...prev, [flatKey]: null }))} />
+                                            ) : (
+                                                <svg className="w-4 h-4 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" /></svg>
+                                            )}
                                         </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        {/* CC / Subtitles button */}
-                                        <button
-                                            onClick={() => openSubPanel(res)}
-                                            title="Find subtitles"
-                                            className={`px-3 py-2.5 rounded-xl text-xs font-bold border transition-all ${subOpenId === res.id
-                                                ? 'bg-teal/20 border-teal/40 text-teal'
-                                                : 'bg-white/[0.04] border-white/[0.08] text-text-3 hover:text-teal hover:border-teal/30 hover:bg-teal/10'}`}>
-                                            CC
-                                        </button>
-                                        <button onClick={() => handleAdd(res.id)} disabled={addingId === res.id || addedIds.has(res.id)}
-                                            className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
-                                                errorId === res.id ? 'bg-red-500/15 text-red-400' :
-                                                    addingId === res.id ? 'bg-accent/10 text-accent/60' :
-                                                        'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
-                                                }`}>
-                                            {addedIds.has(res.id) ? '✓ Added' : errorId === res.id ? '✗ Failed' : addingId === res.id ? '⏳ Adding...' : 'Download'}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Subtitle Panel — inline below card */}
-                                {subOpenId === res.id && (
-                                    <div className="border-t border-white/[0.06] bg-black/20 p-5 space-y-4">
-                                        {/* Controls */}
-                                        <div className="flex items-center gap-3 flex-wrap">
-                                            <span className="text-xs text-teal font-bold uppercase tracking-wider">Subtitles</span>
-                                            <input
-                                                type="text"
-                                                value={subQuery}
-                                                onChange={e => setSubQuery(e.target.value)}
-                                                onKeyDown={e => { if (e.key === 'Enter') searchSubs(subQuery, subLang); }}
-                                                className="flex-1 min-w-[160px] bg-white/[0.05] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-teal/40 placeholder-text-3"
-                                                placeholder="Movie name..."
-                                            />
-                                            <select
-                                                value={subLang}
-                                                onChange={e => { setSubLang(e.target.value); searchSubs(subQuery, e.target.value); }}
-                                                style={{ colorScheme: 'dark', backgroundColor: '#0e0e1a' }}
-                                                className="border border-white/[0.08] rounded-xl px-3 py-2 text-white text-xs focus:outline-none cursor-pointer">
-                                                {LANGS.map(l => <option key={l.code} value={l.code} style={{ backgroundColor: '#0e0e1a' }}>{l.label}</option>)}
-                                            </select>
+                                        <div className="flex-1 min-w-0 space-y-1.5">
+                                            <h3 className="text-white font-bold group-hover:text-accent transition-colors truncate">{res.title}</h3>
+                                            <div className="flex items-center gap-3 text-xs">
+                                                <span className="text-text-3 font-mono">{res.size}</span>
+                                                <span className="flex items-center gap-1">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-teal" />
+                                                    <span className="text-teal font-bold">{res.seeders}</span>
+                                                </span>
+                                                <span className="flex items-center gap-1">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-warning" />
+                                                    <span className="text-warning font-bold">{res.leechers}</span>
+                                                </span>
+                                                <span className="text-text-3/50 uppercase tracking-widest text-[9px]">{res.provider}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {/* CC / Subtitles button */}
                                             <button
-                                                onClick={() => searchSubs(subQuery, subLang)}
-                                                className="px-4 py-2 rounded-xl bg-teal/15 border border-teal/25 text-teal text-xs font-bold hover:bg-teal/25 transition-all">
-                                                Search
+                                                onClick={() => openSubPanel(res)}
+                                                title="Find subtitles"
+                                                className={`px-3 py-2.5 rounded-xl text-xs font-bold border transition-all ${subOpenId === res.id
+                                                    ? 'bg-teal/20 border-teal/40 text-teal'
+                                                    : 'bg-white/[0.04] border-white/[0.08] text-text-3 hover:text-teal hover:border-teal/30 hover:bg-teal/10'}`}>
+                                                CC
+                                            </button>
+                                            <button onClick={() => handleAdd(res.id)} disabled={addingId === res.id || addedIds.has(res.id)}
+                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
+                                                    errorId === res.id ? 'bg-red-500/15 text-red-400' :
+                                                        addingId === res.id ? 'bg-accent/10 text-accent/60' :
+                                                            'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
+                                                    }`}>
+                                                {addedIds.has(res.id) ? '✓ Added' : errorId === res.id ? '✗ Failed' : addingId === res.id ? '⏳ Adding...' : 'Download'}
                                             </button>
                                         </div>
-
-                                        {/* Error */}
-                                        {subError && <p className="text-xs text-red-400">{subError}</p>}
-
-                                        {/* Loading */}
-                                        {subLoading && (
-                                            <div className="flex items-center gap-3 py-4">
-                                                <div className="w-4 h-4 border-2 border-teal/30 border-t-teal rounded-full animate-spin" />
-                                                <span className="text-xs text-text-3">Searching subtitles...</span>
-                                            </div>
-                                        )}
-
-                                        {/* Results list */}
-                                        {!subLoading && subResults.length > 0 && (
-                                            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                                                {subResults.map(sub => (
-                                                    <div key={sub.id}
-                                                        className={`flex items-center gap-3 p-3 rounded-xl border text-xs ${sub.exact
-                                                            ? 'bg-teal/[0.06] border-teal/20'
-                                                            : 'bg-white/[0.02] border-white/[0.05]'}`}>
-                                                        <div className="flex-1 min-w-0 space-y-0.5">
-                                                            <div className="flex items-center gap-2 flex-wrap">
-                                                                {sub.exact && <span className="text-[9px] font-bold bg-teal/20 text-teal px-1.5 py-0.5 rounded-md">⚡ EXACT</span>}
-                                                                <span className="text-white font-medium truncate">{sub.name}</span>
-                                                                {sub.hearing && <span className="text-[9px] bg-white/[0.06] text-text-3 px-1.5 py-0.5 rounded-md">HI</span>}
-                                                            </div>
-                                                            <div className="flex items-center gap-3 text-text-3">
-                                                                <span>{sub.lang}</span>
-                                                                {sub.rating && <span>★ {sub.rating}</span>}
-                                                                {sub.downloads && <span>↓ {parseInt(sub.downloads).toLocaleString()}</span>}
-                                                                {sub.year && <span>{sub.year}</span>}
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            onClick={() => downloadSub(sub, res.title)}
-                                                            disabled={!!downloadingId || downloadedIds.has(sub.id)}
-                                                            className={`shrink-0 px-3 py-1.5 rounded-lg font-bold text-[11px] transition-all ${downloadedIds.has(sub.id)
-                                                                ? 'bg-teal/15 text-teal border border-teal/20'
-                                                                : downloadingId === sub.id
-                                                                    ? 'bg-white/[0.04] text-text-3 cursor-wait'
-                                                                    : sub.exact
-                                                                        ? 'bg-teal/15 border border-teal/25 text-teal hover:bg-teal/30'
-                                                                        : 'bg-white/[0.06] border border-white/[0.08] text-text-2 hover:text-white hover:bg-white/[0.12]'}`}>
-                                                            {downloadedIds.has(sub.id) ? '✓ Saved' : downloadingId === sub.id ? '...' : 'Download'}
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
                                     </div>
-                                )}
-                            </div>
-                        ))}
+
+                                    {/* Subtitle Panel — inline below card */}
+                                    {subOpenId === res.id && (
+                                        <div className="border-t border-white/[0.06] bg-black/20 p-5 space-y-4">
+                                            {/* Controls */}
+                                            <div className="flex items-center gap-3 flex-wrap">
+                                                <span className="text-xs text-teal font-bold uppercase tracking-wider">Subtitles</span>
+                                                <input
+                                                    type="text"
+                                                    value={subQuery}
+                                                    onChange={e => setSubQuery(e.target.value)}
+                                                    onKeyDown={e => { if (e.key === 'Enter') searchSubs(subQuery, subLang); }}
+                                                    className="flex-1 min-w-[160px] bg-white/[0.05] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-teal/40 placeholder-text-3"
+                                                    placeholder="Movie name..."
+                                                />
+                                                <select
+                                                    value={subLang}
+                                                    onChange={e => { setSubLang(e.target.value); searchSubs(subQuery, e.target.value); }}
+                                                    style={{ colorScheme: 'dark', backgroundColor: '#0e0e1a' }}
+                                                    className="border border-white/[0.08] rounded-xl px-3 py-2 text-white text-xs focus:outline-none cursor-pointer">
+                                                    {LANGS.map(l => <option key={l.code} value={l.code} style={{ backgroundColor: '#0e0e1a' }}>{l.label}</option>)}
+                                                </select>
+                                                <button
+                                                    onClick={() => searchSubs(subQuery, subLang)}
+                                                    className="px-4 py-2 rounded-xl bg-teal/15 border border-teal/25 text-teal text-xs font-bold hover:bg-teal/25 transition-all">
+                                                    Search
+                                                </button>
+                                            </div>
+
+                                            {/* Error */}
+                                            {subError && <p className="text-xs text-red-400">{subError}</p>}
+
+                                            {/* Loading */}
+                                            {subLoading && (
+                                                <div className="flex items-center gap-3 py-4">
+                                                    <div className="w-4 h-4 border-2 border-teal/30 border-t-teal rounded-full animate-spin" />
+                                                    <span className="text-xs text-text-3">Searching subtitles...</span>
+                                                </div>
+                                            )}
+
+                                            {/* Results list */}
+                                            {!subLoading && subResults.length > 0 && (
+                                                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                                                    {subResults.map(sub => (
+                                                        <div key={sub.id}
+                                                            className={`flex items-center gap-3 p-3 rounded-xl border text-xs ${sub.exact
+                                                                ? 'bg-teal/[0.06] border-teal/20'
+                                                                : 'bg-white/[0.02] border-white/[0.05]'}`}>
+                                                            <div className="flex-1 min-w-0 space-y-0.5">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    {sub.exact && <span className="text-[9px] font-bold bg-teal/20 text-teal px-1.5 py-0.5 rounded-md">⚡ EXACT</span>}
+                                                                    <span className="text-white font-medium truncate">{sub.name}</span>
+                                                                    {sub.hearing && <span className="text-[9px] bg-white/[0.06] text-text-3 px-1.5 py-0.5 rounded-md">HI</span>}
+                                                                </div>
+                                                                <div className="flex items-center gap-3 text-text-3">
+                                                                    <span>{sub.lang}</span>
+                                                                    {sub.rating && <span>★ {sub.rating}</span>}
+                                                                    {sub.downloads && <span>↓ {parseInt(sub.downloads).toLocaleString()}</span>}
+                                                                    {sub.year && <span>{sub.year}</span>}
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => downloadSub(sub, res.title)}
+                                                                disabled={!!downloadingId || downloadedIds.has(sub.id)}
+                                                                className={`shrink-0 px-3 py-1.5 rounded-lg font-bold text-[11px] transition-all ${downloadedIds.has(sub.id)
+                                                                    ? 'bg-teal/15 text-teal border border-teal/20'
+                                                                    : downloadingId === sub.id
+                                                                        ? 'bg-white/[0.04] text-text-3 cursor-wait'
+                                                                        : sub.exact
+                                                                            ? 'bg-teal/15 border border-teal/25 text-teal hover:bg-teal/30'
+                                                                            : 'bg-white/[0.06] border border-white/[0.08] text-text-2 hover:text-white hover:bg-white/[0.12]'}`}>
+                                                                {downloadedIds.has(sub.id) ? '✓ Saved' : downloadingId === sub.id ? '...' : 'Download'}
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </>
             ) : searchQuery && !isSearching && searchedOnce ? (
