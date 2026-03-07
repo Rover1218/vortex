@@ -35,6 +35,8 @@ interface TorrentContextType {
     searchQuery: string;
     searchCategory: string;
     isSearching: boolean;
+    searchPosters: Record<string, string | null | 'loading'>;
+    setSearchPosters: React.Dispatch<React.SetStateAction<Record<string, string | null | 'loading'>>>;
     setSearchQuery: (q: string) => void;
     setSearchCategory: (c: string) => void;
     doSearch: (query?: string, category?: string) => Promise<void>;
@@ -70,6 +72,7 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchCategory, setSearchCategory] = useState('All');
     const [isSearching, setIsSearching] = useState(false);
+    const [searchPosters, setSearchPosters] = useState<Record<string, string | null | 'loading'>>({});
     const searchAbortRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
@@ -88,6 +91,9 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
 
         socket.on('search-progress', (data: any) => {
             if (data.providers) setSearchLogs(data.providers);
+            // Stream results as each provider finishes; skip the final 'done' event
+            // since the HTTP response will replace with the deduped+sorted list
+            if (data.partialResults && !data.done) setSearchResults(data.partialResults);
         });
 
         return () => { socket.disconnect(); };
@@ -143,6 +149,7 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
         setIsSearching(false);
         setSearchResults([]);
         setSearchLogs([]);
+        setSearchPosters({});
         setSearchQuery('');
     }, []);
 
@@ -220,6 +227,7 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
             torrents, totalDownloadSpeed, totalUploadSpeed,
             settings, diskInfo, library,
             searchResults, searchLogs, searchQuery, searchCategory, isSearching,
+            searchPosters, setSearchPosters,
             setSearchQuery, setSearchCategory, doSearch, cancelSearch, clearSearch, getSuggestions,
             addMagnet, removeTorrent, pauseTorrent, resumeTorrent, stopSeeding, deleteWithFiles,
             updateSettings, fetchDiskInfo, fetchLibrary, browseFolders

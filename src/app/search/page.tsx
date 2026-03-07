@@ -4,6 +4,14 @@ import { useTorrents } from "@/context/TorrentContext";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 
 const SORT_OPTIONS = ['Relevance', 'Seeders (Most)', 'Seeders (Least)', 'Size (Largest)', 'Size (Smallest)'];
+const QUALITY_OPTIONS = [
+    { label: 'All', test: () => true },
+    { label: '720p', test: (t: string) => /720p/i.test(t) },
+    { label: '1080p', test: (t: string) => /1080p/i.test(t) },
+    { label: '4K', test: (t: string) => /2160p|4k/i.test(t) },
+    { label: 'Remux', test: (t: string) => /remux/i.test(t) },
+    { label: 'HDR', test: (t: string) => /hdr|dolby.?vision|dv/i.test(t) },
+];
 
 const LANGS = [
     { code: "en", label: "English" }, { code: "hi", label: "Hindi" },
@@ -30,19 +38,20 @@ interface SubResult {
 export default function SearchPage() {
     const {
         searchResults, searchLogs, searchQuery, setSearchQuery,
-        isSearching, doSearch, cancelSearch, clearSearch, getSuggestions
+        searchCategory, setSearchCategory,
+        isSearching, doSearch, cancelSearch, clearSearch, getSuggestions,
+        searchPosters: posters, setSearchPosters: setPosters,
     } = useTorrents();
 
     const [sortBy, setSortBy] = useState('Relevance');
     const [sortOpen, setSortOpen] = useState(false);
     const [providerFilter, setProviderFilter] = useState<string | null>(null);
+    const [qualityFilter, setQualityFilter] = useState('All');
     const [addingId, setAddingId] = useState<number | null>(null);
     const [addedIds, setAddedIds] = useState<Set<number>>(new Set());
     const [errorId, setErrorId] = useState<number | null>(null);
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
     const [groupMode, setGroupMode] = useState(true); // toggle grouping on/off
-    // poster: 'loading' | url | null per group key / res.id
-    const [posters, setPosters] = useState<Record<string, string | null | 'loading'>>({});
     // bulk adding: group key being serially added
     const [bulkAddingKey, setBulkAddingKey] = useState<string | null>(null);
     const [bulkAddedKeys, setBulkAddedKeys] = useState<Set<string>>(new Set());
@@ -161,9 +170,12 @@ export default function SearchPage() {
         setAddedIds(new Set());
         setSortBy('Relevance');
         setProviderFilter(null);
+        setQualityFilter('All');
     };
 
     const handleAdd = async (id: number) => {
+        const item = searchResults.find(r => r.id === id);
+        if (item?.inLibrary || item?.provider === 'Local') return;
         setAddingId(id);
         setErrorId(null);
         try {
@@ -233,15 +245,18 @@ export default function SearchPage() {
 
     // Memoize sorted so deps are stable — prevents poster effect from aborting itself every render
     const sorted = useMemo(() => {
-        const base = [...searchResults].sort((a, b) => {
-            if (sortBy === 'Seeders (Most)') return b.seeders - a.seeders;
-            if (sortBy === 'Seeders (Least)') return a.seeders - b.seeders;
-            if (sortBy === 'Size (Largest)') return parseSize(b.size) - parseSize(a.size);
-            if (sortBy === 'Size (Smallest)') return parseSize(a.size) - parseSize(b.size);
-            return 0;
-        });
+        const qualOpt = QUALITY_OPTIONS.find(q => q.label === qualityFilter) || QUALITY_OPTIONS[0];
+        const base = [...searchResults]
+            .filter(r => qualOpt.test(r.title))
+            .sort((a, b) => {
+                if (sortBy === 'Seeders (Most)') return b.seeders - a.seeders;
+                if (sortBy === 'Seeders (Least)') return a.seeders - b.seeders;
+                if (sortBy === 'Size (Largest)') return parseSize(b.size) - parseSize(a.size);
+                if (sortBy === 'Size (Smallest)') return parseSize(a.size) - parseSize(b.size);
+                return 0;
+            });
         return providerFilter ? base.filter(r => r.provider === providerFilter) : base;
-    }, [searchResults, sortBy, providerFilter]);
+    }, [searchResults, sortBy, providerFilter, qualityFilter]);
 
     // Group TV episodes — only when groupMode is on
     interface EpGroup { key: string; showName: string; season: number; episodes: typeof sorted; bestSeeders: number; }
@@ -250,6 +265,10 @@ export default function SearchPage() {
         const groups = new Map<string, EpGroup>();
         const flatItems: typeof sorted = [];
         for (const r of sorted) {
+            if (r.inLibrary || r.provider === 'Local') {
+                flatItems.push(r);
+                continue;
+            }
             const ep = parseEpisode(r.title);
             if (ep) {
                 const existing = groups.get(ep.episodeKey);
@@ -291,15 +310,15 @@ export default function SearchPage() {
     // Reset posters when search is cleared
     useEffect(() => {
         if (searchResults.length === 0) setPosters({});
-    }, [searchResults]);
+    }, [searchResults, setPosters]);
 
-    // Fetch posters for TV groups and first 10 flat items whenever results change
+    // Fetch posters for TV groups and visible flat items whenever results change
     useEffect(() => {
         const toFetch: { key: string; query: string }[] = [];
         [...groups.values()].forEach(g => {
             if (posters[g.key] === undefined) toFetch.push({ key: g.key, query: g.showName });
         });
-        flatItems.slice(0, 10).forEach(r => {
+        flatItems.slice(0, 40).forEach(r => {
             const k = `flat_${r.id}`;
             if (posters[k] === undefined) toFetch.push({ key: k, query: r.title });
         });
@@ -311,14 +330,19 @@ export default function SearchPage() {
         });
         const controller = new AbortController();
         (async () => {
-            for (const { key, query } of toFetch) {
+            const batchSize = 8;
+            for (let i = 0; i < toFetch.length; i += batchSize) {
+                const batch = toFetch.slice(i, i + batchSize);
+                await Promise.all(batch.map(async ({ key, query }) => {
+                    try {
+                        const r = await fetch(`http://localhost:3001/api/poster?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+                        const data = await r.json();
+                        setPosters(prev => ({ ...prev, [key]: data?.poster ?? null }));
+                    } catch {
+                        if (!controller.signal.aborted) setPosters(prev => ({ ...prev, [key]: null }));
+                    }
+                }));
                 if (controller.signal.aborted) break;
-                try {
-                    const r = await fetch(`http://localhost:3001/api/poster?q=${encodeURIComponent(query)}`, { signal: controller.signal });
-                    const data = await r.json();
-                    setPosters(prev => ({ ...prev, [key]: data?.poster ?? null }));
-                } catch { if (!controller.signal.aborted) setPosters(prev => ({ ...prev, [key]: null })); }
-                await new Promise(res => setTimeout(res, 100));
             }
         })();
         return () => controller.abort();
@@ -393,6 +417,20 @@ export default function SearchPage() {
                             ))}
                         </div>
                     )}
+                </div>
+
+                {/* Quality filter chips — always visible below search bar */}
+                <div className="flex flex-wrap gap-2 justify-center mt-4">
+                    {QUALITY_OPTIONS.map(opt => (
+                        <button key={opt.label}
+                            onClick={() => setQualityFilter(opt.label)}
+                            className={`px-3.5 py-1.5 rounded-xl border text-[11px] font-bold transition-all ${qualityFilter === opt.label
+                                ? 'bg-accent/25 border-accent/50 text-accent scale-[1.05]'
+                                : 'bg-white/[0.04] border-white/[0.07] text-text-3 hover:text-white hover:bg-white/[0.08]'
+                                }`}>
+                            {opt.label}
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -574,13 +612,13 @@ export default function SearchPage() {
                                                                 <span className="text-text-3/40 uppercase tracking-widest">{res.provider}</span>
                                                             </div>
                                                         </div>
-                                                        <button onClick={() => handleAdd(res.id)} disabled={addingId === res.id || addedIds.has(res.id)}
+                                                        <button onClick={() => handleAdd(res.id)} disabled={res.inLibrary || addingId === res.id || addedIds.has(res.id)}
                                                             className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
                                                                 errorId === res.id ? 'bg-red-500/15 text-red-400' :
                                                                     addingId === res.id ? 'bg-accent/10 text-accent/60' :
                                                                         'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
                                                                 }`}>
-                                                            {addedIds.has(res.id) ? '✓' : errorId === res.id ? '✗' : addingId === res.id ? '...' : '+'}
+                                                            {res.inLibrary ? '✓' : addedIds.has(res.id) ? '✓' : errorId === res.id ? '✗' : addingId === res.id ? '...' : '+'}
                                                         </button>
                                                     </div>
                                                 );
@@ -622,6 +660,11 @@ export default function SearchPage() {
                                                     <span className="text-warning font-bold">{res.leechers}</span>
                                                 </span>
                                                 <span className="text-text-3/50 uppercase tracking-widest text-[9px]">{res.provider}</span>
+                                                {res.inLibrary && (
+                                                    <span className="px-2 py-0.5 rounded-full bg-teal/12 border border-teal/20 text-teal text-[9px] font-bold uppercase tracking-widest">
+                                                        In Library
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
@@ -634,13 +677,13 @@ export default function SearchPage() {
                                                     : 'bg-white/[0.04] border-white/[0.08] text-text-3 hover:text-teal hover:border-teal/30 hover:bg-teal/10'}`}>
                                                 CC
                                             </button>
-                                            <button onClick={() => handleAdd(res.id)} disabled={addingId === res.id || addedIds.has(res.id)}
-                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
+                                            <button onClick={() => handleAdd(res.id)} disabled={res.inLibrary || addingId === res.id || addedIds.has(res.id)}
+                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${res.inLibrary ? 'bg-teal/15 text-teal border border-teal/20' : addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
                                                     errorId === res.id ? 'bg-red-500/15 text-red-400' :
                                                         addingId === res.id ? 'bg-accent/10 text-accent/60' :
                                                             'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
                                                     }`}>
-                                                {addedIds.has(res.id) ? '✓ Added' : errorId === res.id ? '✗ Failed' : addingId === res.id ? '⏳ Adding...' : 'Download'}
+                                                {res.inLibrary ? 'In Library' : addedIds.has(res.id) ? '✓ Added' : errorId === res.id ? '✗ Failed' : addingId === res.id ? '⏳ Adding...' : 'Download'}
                                             </button>
                                         </div>
                                     </div>

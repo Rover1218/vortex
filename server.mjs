@@ -116,11 +116,11 @@ function buildMagnet(hash, name) {
     return `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(name)}${TPB_TR_QUERY}`;
 }
 
-function httpsGet(url) {
+function httpsGet(url, timeout = 9000) {
     return new Promise((resolve, reject) => {
         const req = https.get(url, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept': 'application/json, text/html, */*' },
-            timeout: 9000
+            timeout
         }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
@@ -213,12 +213,77 @@ async function searchNyaa(query, userCategory) {
     }).filter(Boolean);
 }
 
+// ── TorrentCSV — open DHT index, fast JSON API, broad coverage ───────────
+async function searchTorrentCSV(query) {
+    const url = `https://torrents-csv.com/service/search?q=${encodeURIComponent(query)}&size=25`;
+    let data = null;
+    try {
+        const { body } = await httpsGet(url, 8000);
+        data = JSON.parse(body);
+    } catch { return []; }
+    return (data?.torrents || []).filter(t => t.infohash && t.name).map(t => ({
+        _provider: 'TorrentCSV',
+        _magnet: buildMagnet(t.infohash, t.name),
+        title: t.name,
+        seeds: t.seeders || 0,
+        peers: t.leechers || 0,
+        size: t.size_bytes ? humanizeBytes(t.size_bytes) : '?',
+        time: t.created_unix ? new Date(t.created_unix * 1000).toUTCString() : '',
+        category: 'All',
+        uploader: '',
+    }));
+}
+
+// ── AnimeTosho — anime-focused RSS index with magnets ────────────────────
+async function searchAnimeTosho(query) {
+    const url = `https://feed.animetosho.org/api?q=${encodeURIComponent(query)}&only_tor=1`;
+    let body = '';
+    try {
+        const r = await httpsGet(url, 8000);
+        body = r.body;
+    } catch { return []; }
+    const items = [...body.matchAll(/<item>([\s\S]*?)<\/item>/g)];
+    return items.slice(0, 30).map(m => {
+        const x = m[1];
+        const getCdata = tag => x.match(new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`))?.[1]?.trim() || '';
+        const getAttr = name => x.match(new RegExp(`<torznab:attr name="${name}" value="([^"]+)"`))?.[1] || '';
+        const title = getCdata('title');
+        const infohash = getAttr('infohash');
+        // magnet may be in <link> or built from infohash
+        const linkVal = getCdata('link');
+        const magnet = (linkVal.startsWith('magnet:') ? linkVal : null) || (infohash ? buildMagnet(infohash, title) : null);
+        if (!title || !magnet) return null;
+        const sizeBytes = parseInt(getAttr('size')) || 0;
+        return {
+            _provider: 'AnimeTosho',
+            _magnet: magnet,
+            title,
+            seeds: parseInt(getAttr('seeders')) || 0,
+            peers: parseInt(getAttr('leechers')) || 0,
+            size: sizeBytes ? humanizeBytes(sizeBytes) : '?',
+            time: getCdata('pubDate'),
+            category: 'Anime',
+            uploader: '',
+        };
+    }).filter(Boolean);
+}
+
 // ── Provider registry ─────────────────────────────────────────────────────
 const CUSTOM_PROVIDERS = [
     {
         name: 'ThePirateBay',
         search: (q, cat) => searchApiBay(q, cat, 'ThePirateBay'),
         categories: ['All', 'Movies', 'TV Shows', 'Music', 'Applications', 'Games', 'Anime'],
+    },
+    {
+        name: 'TorrentCSV',
+        search: (q, _cat) => searchTorrentCSV(q),
+        categories: ['All', 'Movies', 'TV Shows', 'Anime', 'Music', 'Applications', 'Games'],
+    },
+    {
+        name: 'AnimeTosho',
+        search: (q, cat) => (['All', 'Anime', 'TV Shows'].includes(cat) ? searchAnimeTosho(q) : Promise.resolve([])),
+        categories: ['All', 'Anime', 'TV Shows'],
     },
     {
         name: 'Nyaa',
@@ -455,68 +520,170 @@ app.delete('/api/library/delete', (req, res) => {
 });
 
 // ─── Library ───
-app.get('/api/library', (req, res) => {
+function scanLibraryItems() {
     const dlPath = settings.downloadPath;
-    try {
-        if (!fs.existsSync(dlPath)) return res.json([]);
-        const VIDEO_EXT = new Set(['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.ts', '.m2ts']);
-        const AUDIO_EXT = new Set(['.mp3', '.flac', '.aac', '.ogg', '.wav', '.m4a', '.opus', '.wma']);
-        const APP_EXT = new Set(['.exe', '.msi', '.dmg', '.deb', '.rpm', '.apk', '.ipa', '.zip', '.rar', '.7z', '.tar', '.gz']);
+    if (!fs.existsSync(dlPath)) return [];
+    const VIDEO_EXT = new Set(['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.ts', '.m2ts']);
+    const AUDIO_EXT = new Set(['.mp3', '.flac', '.aac', '.ogg', '.wav', '.m4a', '.opus', '.wma']);
+    const APP_EXT = new Set(['.exe', '.msi', '.dmg', '.deb', '.rpm', '.apk', '.ipa', '.zip', '.rar', '.7z', '.tar', '.gz']);
 
-        const getCategory = (name) => {
-            const ext = path.extname(name).toLowerCase();
-            if (VIDEO_EXT.has(ext)) return 'Video';
-            if (AUDIO_EXT.has(ext)) return 'Audio';
-            if (APP_EXT.has(ext)) return 'App/Archive';
-            return 'Other';
-        };
+    const getCategory = (name) => {
+        const ext = path.extname(name).toLowerCase();
+        if (VIDEO_EXT.has(ext)) return 'Video';
+        if (AUDIO_EXT.has(ext)) return 'Audio';
+        if (APP_EXT.has(ext)) return 'App/Archive';
+        return 'Other';
+    };
 
-        const JUNK_NAMES = new Set([
-            'thanks', 'thank you', 'sample', 'samples', 'extras', 'extra',
-            'bonus', 'featurettes', 'behindthescenes', 'deleted scenes',
-            'interviews', 'scenes', 'shorts', 'trailers', 'specials',
-            'subs', 'subtitles', 'sub', 'nfo', 'proof'
-        ]);
+    const JUNK_NAMES = new Set([
+        'thanks', 'thank you', 'sample', 'samples', 'extras', 'extra',
+        'bonus', 'featurettes', 'behindthescenes', 'deleted scenes',
+        'interviews', 'scenes', 'shorts', 'trailers', 'specials',
+        'subs', 'subtitles', 'sub', 'nfo', 'proof'
+    ]);
 
-        const walk = (dir, depth = 0) => {
-            if (depth > 2) return [];
-            let results = [];
-            try {
-                const entries = fs.readdirSync(dir, { withFileTypes: true });
-                for (const e of entries) {
-                    if (e.name.startsWith('.') || e.name === '$RECYCLE.BIN') continue;
-                    // Skip junk folders
-                    if (JUNK_NAMES.has(e.name.toLowerCase())) continue;
-                    const fullPath = path.join(dir, e.name);
-                    try {
-                        const stat = fs.statSync(fullPath);
-                        if (e.isDirectory()) {
-                            // Include the folder itself as a library item
+    const walk = (dir, depth = 0) => {
+        if (depth > 2) return [];
+        let results = [];
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const e of entries) {
+                if (e.name.startsWith('.') || e.name === '$RECYCLE.BIN') continue;
+                if (JUNK_NAMES.has(e.name.toLowerCase())) continue;
+                const fullPath = path.join(dir, e.name);
+                try {
+                    const stat = fs.statSync(fullPath);
+                    if (e.isDirectory()) {
+                        results.push({
+                            name: e.name, path: fullPath, isDir: true,
+                            size: 0, modified: stat.mtime.toISOString(), category: 'Folder'
+                        });
+                        results = results.concat(walk(fullPath, depth + 1));
+                    } else {
+                        const cat = getCategory(e.name);
+                        if (depth === 0 || cat !== 'Other') {
                             results.push({
-                                name: e.name, path: fullPath, isDir: true,
-                                size: 0, modified: stat.mtime.toISOString(), category: 'Folder'
+                                name: e.name, path: fullPath, isDir: false,
+                                size: stat.size, modified: stat.mtime.toISOString(), category: cat
                             });
-                            // Also walk children for video/audio files up to depth
-                            results = results.concat(walk(fullPath, depth + 1));
-                        } else {
-                            const ext = path.extname(e.name).toLowerCase();
-                            const cat = getCategory(e.name);
-                            // Only surface meaningful files at depth > 0
-                            if (depth === 0 || cat !== 'Other') {
-                                results.push({
-                                    name: e.name, path: fullPath, isDir: false,
-                                    size: stat.size, modified: stat.mtime.toISOString(), category: cat
-                                });
-                            }
                         }
-                    } catch { /* skip inaccessible */ }
-                }
-            } catch { }
-            return results;
-        };
+                    }
+                } catch { }
+            }
+        } catch { }
+        return results;
+    };
 
-        const items = walk(dlPath, 0);
-        res.json(items);
+    return walk(dlPath, 0);
+}
+
+function normalizeSearchName(name) {
+    return (name || '')
+        .replace(/\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|mpg|mpeg|ts|m2ts|zip|rar|7z)$/i, '')
+        .replace(/[._]/g, ' ')
+        .replace(/\b(720p|1080p|2160p|4k|bluray|brrip|bdrip|webrip|web[-. ]?dl|x264|x265|hevc|avc|xvid|hdr|dv|dts|aac|ac3|remux|repack|proper|extended)\b/gi, ' ')
+        .replace(/\[[^\]]+\]/g, ' ')
+        .replace(/\([^\)]*\)/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function normalizeReleaseName(name) {
+    return (name || '')
+        .replace(/\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|mpg|mpeg|ts|m2ts|zip|rar|7z)$/i, '')
+        .replace(/[._\-\[\]\(\)]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function tokenizeReleaseName(name) {
+    return normalizeReleaseName(name)
+        .split(/\s+/)
+        .filter(token => token.length > 1);
+}
+
+function searchLocalLibrary(query, category) {
+    const qn = normalizeSearchName(query);
+    if (!qn) return [];
+    const queryWords = qn.split(/\s+/).filter(Boolean);
+    const items = scanLibraryItems();
+    const seen = new Set();
+    const results = [];
+
+    for (const item of items) {
+        const isMedia = item.category === 'Video' || item.category === 'Folder';
+        if (!isMedia) continue;
+        if (category && category !== 'All' && !['Movies', 'TV Shows', 'Anime'].includes(category)) continue;
+        const normalized = normalizeSearchName(item.name);
+        if (!normalized) continue;
+        const allWordsMatch = queryWords.every(w => normalized.includes(w));
+        const fuzzyMatch = normalized.includes(qn) || qn.includes(normalized);
+        if (!allWordsMatch && !fuzzyMatch) continue;
+        const dedupeKey = `${item.path}`.toLowerCase();
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        results.push({
+            _provider: 'Local',
+            _magnet: null,
+            _localPath: item.path,
+            _inLibrary: true,
+            _isDir: item.isDir,
+            title: item.name,
+            seeds: 0,
+            peers: 0,
+            size: item.isDir ? 'Folder' : humanizeBytes(item.size),
+            time: item.modified ? new Date(item.modified).toUTCString() : '',
+            uploader: 'On Disk',
+        });
+    }
+
+    results.sort((a, b) => a.title.length - b.title.length);
+    return results.slice(0, 25);
+}
+
+function extractYearHint(name) {
+    return (name || '').match(/\b((?:19|20)\d{2})\b/)?.[1] || '';
+}
+
+function localMatchForTitle(title, localResults) {
+    const normalizedTitle = normalizeSearchName(title);
+    const normalizedRelease = normalizeReleaseName(title);
+    const remoteTokens = tokenizeReleaseName(title);
+    if (!normalizedTitle || !normalizedRelease || remoteTokens.length === 0) return null;
+    const titleYear = extractYearHint(title);
+
+    for (const item of localResults) {
+        if (item._isDir) continue;
+        const normalizedLocal = normalizeSearchName(item.title);
+        const normalizedLocalRelease = normalizeReleaseName(item.title);
+        const localTokens = tokenizeReleaseName(item.title);
+        if (!normalizedLocal) continue;
+        if (!normalizedLocalRelease || localTokens.length === 0) continue;
+        const localYear = extractYearHint(item.title);
+        const yearCompatible = !titleYear || !localYear || titleYear === localYear;
+        if (!yearCompatible) continue;
+
+        if (normalizedRelease === normalizedLocalRelease) return item;
+        if (normalizedTitle !== normalizedLocal && !normalizedTitle.includes(normalizedLocal) && !normalizedLocal.includes(normalizedTitle)) continue;
+
+        const localSet = new Set(localTokens);
+        const remoteSet = new Set(remoteTokens);
+        let overlap = 0;
+        for (const token of remoteSet) {
+            if (localSet.has(token)) overlap += 1;
+        }
+        const localCoverage = overlap / localSet.size;
+        const remoteCoverage = overlap / remoteSet.size;
+        if (localCoverage >= 0.8 && remoteCoverage >= 0.8) return item;
+    }
+    return null;
+}
+
+app.get('/api/library', (req, res) => {
+    try {
+        res.json(scanLibraryItems());
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -593,8 +760,29 @@ app.get('/api/search', async (req, res) => {
     const providerStatus = {};
     CUSTOM_PROVIDERS.forEach(p => { providerStatus[p.name] = { name: p.name, status: 'pending', count: 0 }; });
 
+    const localResults = searchLocalLibrary(String(q), String(cat));
+    providerStatus.Local = { name: 'Local', status: 'done', count: localResults.length, time: 0 };
+    if (localResults.length > 0) localResults.forEach(r => allResults.push(r));
+
     // Emit initial state
-    io.emit('search-progress', { searchId, providers: Object.values(providerStatus), totalResults: 0, query: q });
+    io.emit('search-progress', {
+        searchId,
+        providers: Object.values(providerStatus),
+        totalResults: allResults.length,
+        query: q,
+        partialResults: allResults.map((r, i) => ({
+            id: i,
+            title: r.title || 'Unknown',
+            size: r.size || '?',
+            seeders: r.seeds || 0,
+            leechers: r.peers || 0,
+            provider: r._provider || '',
+            time: r.time || '',
+            uploader: r.uploader || '',
+            inLibrary: Boolean(r._inLibrary),
+            localPath: r._localPath || '',
+        })).filter(r => r.title !== 'Unknown')
+    });
 
     const searchPromises = CUSTOM_PROVIDERS.map(async (provider) => {
         if (searchId !== activeSearchId) return;
@@ -603,11 +791,21 @@ app.get('/api/search', async (req, res) => {
         io.emit('search-progress', { searchId, providers: Object.values(providerStatus), totalResults: allResults.length, query: q });
 
         const startTime = Date.now();
+        // Scraping providers need more time than API providers
+        const providerTimeout = ['1337x', 'YTS'].includes(provider.name) ? 15000 : 10000;
         try {
-            const results = await Promise.race([
+            let results = await Promise.race([
                 provider.search(q, cat),
-                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000))
+                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), providerTimeout))
             ]);
+            results = (results || []).map(r => {
+                const localMatch = localMatchForTitle(r.title, localResults);
+                return localMatch ? {
+                    ...r,
+                    _inLibrary: true,
+                    _localPath: localMatch._localPath || '',
+                } : r;
+            });
             const elapsed = Date.now() - startTime;
             if (searchId !== activeSearchId) return;
             const count = results?.length || 0;
@@ -621,7 +819,21 @@ app.get('/api/search', async (req, res) => {
         }
 
         if (searchId === activeSearchId) {
-            io.emit('search-progress', { searchId, providers: Object.values(providerStatus), totalResults: allResults.length, query: q });
+            // Snapshot allResults so magnet lookup works for partial results
+            lastSearchResults = allResults.slice();
+            const partialFormatted = lastSearchResults.map((r, i) => ({
+                id: i,
+                title: r.title || 'Unknown',
+                size: r.size || '?',
+                seeders: r.seeds || 0,
+                leechers: r.peers || 0,
+                provider: r._provider || '',
+                time: r.time || '',
+                uploader: r.uploader || '',
+                inLibrary: Boolean(r._inLibrary),
+                localPath: r._localPath || '',
+            })).filter(r => r.title !== 'Unknown');
+            io.emit('search-progress', { searchId, providers: Object.values(providerStatus), totalResults: allResults.length, query: q, partialResults: partialFormatted });
         }
     });
 
@@ -632,7 +844,7 @@ app.get('/api/search', async (req, res) => {
     // Deduplicate by title (case-insensitive)
     const seen = new Set();
     const deduped = allResults.filter(r => {
-        const key = (r.title || '').toLowerCase().trim();
+        const key = `${r._provider || ''}::${(r.title || '').toLowerCase().trim()}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -651,6 +863,8 @@ app.get('/api/search', async (req, res) => {
         provider: r._provider || '',
         time: r.time || '',
         uploader: r.uploader || '',
+        inLibrary: Boolean(r._inLibrary),
+        localPath: r._localPath || '',
     })).filter(r => r.title !== 'Unknown');
 
     console.log(`   📊 Total: ${formatted.length} results (after dedup)`);
@@ -941,113 +1155,158 @@ function httpPost(urlStr, body, timeout = 9000) {
 }
 
 function cleanTitle(q) {
+    // Extract bracket content (e.g., "[Taare Zameen Par]") as canonical alt title
+    const bracketMatch = q.match(/\[([^\]]{2,})\]/);
+    const altTitle = bracketMatch ? bracketMatch[1].trim() : '';
     let s = q.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/[._]/g, ' ');
     const yearMatch = s.match(/\b((?:19|20)\d{2})\b/);
     const year = yearMatch ? yearMatch[1] : '';
     const cutIdx = s.search(/\b((?:19|20)\d{2}|720p|1080p|2160p|4k|bluray|bdrip|hdtv|webrip|web[-. ]?dl|x264|x265|hevc|xvid|remux|repack|proper|s\d{1,2}e\d{1,2}|ep\d+)\b/i);
     s = (cutIdx > 2 ? s.slice(0, cutIdx) : s).replace(/\s*-\s*[A-Za-z0-9]{2,}$/, '').replace(/\s+/g, ' ').trim();
-    return { clean: s, year };
+    return { clean: s, year, altTitle };
 }
+
+// In-memory poster cache — avoids re-hitting external APIs for same query
+const posterCache = new Map();
 
 app.get('/api/poster', async (req, res) => {
     const q = (req.query.q || '').toString().trim();
     if (!q) return res.status(400).json({ error: 'Missing query' });
-    const { clean, year } = cleanTitle(q);
+    const { clean, year, altTitle } = cleanTitle(q);
     if (!clean) return res.json({ poster: null });
 
-    // ── 1. TVmaze — live-action TV & KDrama (free, no key) ──
-    try {
-        const tvData = await httpGet(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(clean)}`);
-        if (Array.isArray(tvData) && tvData.length > 0) {
-            let best = null, bestScore = -1;
-            for (const { score, show } of tvData) {
-                if (!show?.image?.original && !show?.image?.medium) continue;
-                const nameMatch = (show.name || '').toLowerCase() === clean.toLowerCase() ? 10 : score * 5;
-                const yearBonus = year && (show.premiered || '').startsWith(year) ? 3 : 0;
-                const total = nameMatch + yearBonus;
-                if (total > bestScore) { bestScore = total; best = show; }
-            }
-            // Require a confident match — avoids returning wrong TV shows for anime/movies
-            if (best && bestScore >= 7) {
-                return res.json({
-                    poster: best.image.original || best.image.medium,
-                    title: best.name,
-                    year: (best.premiered || '').slice(0, 4),
-                    type: 'tvShow',
-                });
-            }
-        }
-    } catch { /* fall through */ }
+    const cacheKey = `${clean}|${altTitle}|${year}`;
+    if (posterCache.has(cacheKey)) return res.json(posterCache.get(cacheKey));
 
-    // ── 2. AniList — anime series + movies, very accurate (free GraphQL, no key) ──
-    try {
+    async function tryTvmaze(title) {
+        const tvData = await httpGet(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(title)}`, 5000);
+        if (!Array.isArray(tvData) || !tvData.length) throw new Error('no results');
+        let best = null, bestScore = -1;
+        for (const { score, show } of tvData) {
+            if (!show?.image?.original && !show?.image?.medium) continue;
+            const nameMatch = (show.name || '').toLowerCase() === title.toLowerCase() ? 10 : score * 5;
+            const yearBonus = year && (show.premiered || '').startsWith(year) ? 3 : 0;
+            const total = nameMatch + yearBonus;
+            if (total > bestScore) { bestScore = total; best = show; }
+        }
+        if (!best || bestScore < 7) throw new Error('no confident match');
+        return { poster: best.image.original || best.image.medium, title: best.name, year: (best.premiered || '').slice(0, 4), type: 'tvShow' };
+    }
+
+    async function tryAniList(title) {
         const alQuery = 'query($s:String){Page(perPage:5){media(search:$s,type:ANIME){title{romaji english}coverImage{extraLarge large}startDate{year}}}}';
-        const alData = await httpPost('https://graphql.anilist.co', { query: alQuery, variables: { s: clean } });
+        const alData = await httpPost('https://graphql.anilist.co', { query: alQuery, variables: { s: title } }, 5000);
         const alList = alData?.data?.Page?.media || [];
-        if (alList.length > 0) {
-            let best = null, bestScore = -1;
-            for (const a of alList) {
-                const img = a.coverImage?.extraLarge || a.coverImage?.large;
-                if (!img) continue;
-                const cl = clean.toLowerCase();
-                const titles = [a.title?.english, a.title?.romaji].filter(Boolean).map(t => t.toLowerCase());
-                const nameMatch = titles.some(t => t === cl) ? 10
-                    : titles.some(t => t.includes(cl) || cl.includes(t)) ? 5 : 0;
-                const yearBonus = year && String(a.startDate?.year) === year ? 3 : 0;
-                const total = nameMatch + yearBonus;
-                if (total > bestScore) { bestScore = total; best = { img, title: a.title?.english || a.title?.romaji, year: String(a.startDate?.year || '') }; }
-            }
-            if (best && bestScore >= 5) {
-                return res.json({ poster: best.img, title: best.title, year: best.year, type: 'anime' });
+        if (!alList.length) throw new Error('no results');
+        let best = null, bestScore = -1;
+        for (const a of alList) {
+            const img = a.coverImage?.extraLarge || a.coverImage?.large;
+            if (!img) continue;
+            const cl = title.toLowerCase();
+            const titles = [a.title?.english, a.title?.romaji].filter(Boolean).map(t => t.toLowerCase());
+            const nameMatch = titles.some(t => t === cl) ? 10 : titles.some(t => t.includes(cl) || cl.includes(t)) ? 5 : 0;
+            const yearBonus = year && String(a.startDate?.year) === year ? 3 : 0;
+            const total = nameMatch + yearBonus;
+            if (total > bestScore) { bestScore = total; best = { img, title: a.title?.english || a.title?.romaji, year: String(a.startDate?.year || '') }; }
+        }
+        if (!best || bestScore < 5) throw new Error('no confident match');
+        return { poster: best.img, title: best.title, year: best.year, type: 'anime' };
+    }
+
+    async function tryJikan(title) {
+        const jData = await httpGet(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&limit=5&sfw`, 5000);
+        if (!Array.isArray(jData?.data) || !jData.data.length) throw new Error('no results');
+        let best = null, bestScore = -1;
+        for (const a of jData.data) {
+            const img = a.images?.jpg?.large_image_url || a.images?.jpg?.image_url;
+            if (!img) continue;
+            const titles = [a.title, a.title_english, ...(a.titles || []).map(t => t.title)].filter(Boolean);
+            const cl = title.toLowerCase();
+            const nameMatch = titles.some(t => t.toLowerCase() === cl) ? 10 : titles.some(t => t.toLowerCase().includes(cl) || cl.includes(t.toLowerCase())) ? 5 : 0;
+            const yearBonus = year && String(a.year) === year ? 3 : 0;
+            const total = nameMatch + yearBonus;
+            if (total > bestScore) { bestScore = total; best = { img, title: a.title_english || a.title, year: String(a.year || '') }; }
+        }
+        if (!best || bestScore < 5) throw new Error('no confident match');
+        return { poster: best.img, title: best.title, year: best.year, type: 'anime' };
+    }
+
+    async function tryKitsu(title) {
+        const kData = await httpGet(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(title)}&page[limit]=5`, 5000);
+        if (!Array.isArray(kData?.data) || !kData.data.length) throw new Error('no results');
+        let best = null, bestScore = -1;
+        for (const a of kData.data) {
+            const img = a.attributes?.posterImage?.large || a.attributes?.posterImage?.medium;
+            if (!img) continue;
+            const cl = title.toLowerCase();
+            const titleEn = (a.attributes?.titles?.en || a.attributes?.titles?.en_jp || a.attributes?.canonicalTitle || '').toLowerCase();
+            const nameMatch = titleEn === cl ? 10 : (titleEn.includes(cl) || cl.includes(titleEn)) ? 5 : 0;
+            const startYear = (a.attributes?.startDate || '').slice(0, 4);
+            const yearBonus = year && startYear === year ? 3 : 0;
+            const total = nameMatch + yearBonus;
+            if (total > bestScore) { bestScore = total; best = { img, title: a.attributes?.canonicalTitle || title, year: startYear }; }
+        }
+        if (!best || bestScore < 5) throw new Error('no confident match');
+        return { poster: best.img, title: best.title, year: best.year, type: 'anime' };
+    }
+
+    async function tryWikipedia(title) {
+        const attempts = [
+            title,
+            ...(year ? [`${title} (${year} film)`, `${title} (film)`] : [`${title} (film)`]),
+        ];
+        for (const attempt of attempts) {
+            const slug = attempt.trim().replace(/\s+/g, '_');
+            const wData = await httpGet(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(slug)}`, 5000);
+            if (wData?.type === 'standard' && wData.thumbnail?.source) {
+                // Replace pixel size with 500px — valid Wikimedia thumbnail URL
+                const poster = wData.thumbnail.source.replace(/\/\d+px-/, '/500px-');
+                return { poster, title: wData.title, year: (wData.description || '').match(/\b((?:19|20)\d{2})\b/)?.[1] || year, type: 'movie' };
             }
         }
-    } catch { /* fall through */ }
+        // Search API fallback
+        const searchData = await httpGet(
+            `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(title + (year ? ' film ' + year : ' film'))}&srlimit=3&format=json`,
+            5000
+        );
+        for (const hit of (searchData?.query?.search || [])) {
+            const slug = hit.title.replace(/\s+/g, '_');
+            const wData = await httpGet(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(slug)}`, 5000);
+            if (wData?.type === 'standard' && wData.thumbnail?.source) {
+                const poster = wData.thumbnail.source.replace(/\/\d+px-/, '/500px-');
+                return { poster, title: wData.title, year, type: 'movie' };
+            }
+        }
+        throw new Error('no match');
+    }
 
-    // ── 3. Jikan (MyAnimeList unofficial) — anime series + movies (free, no key) ──
+    // Phase 1: If altTitle exists (e.g., "Taare Zameen Par" from "[Taare Zameen Par]"),
+    // try Wikipedia with it first — it's the canonical original-language title and will
+    // have its own Wikipedia article, avoiding mismatches on the English translation.
+    if (altTitle) {
+        try {
+            const result = await tryWikipedia(altTitle);
+            posterCache.set(cacheKey, result);
+            return res.json(result);
+        } catch { /* fall through to parallel race */ }
+    }
+
+    // Phase 2: Race all sources simultaneously — first confident match wins
     try {
-        const jData = await httpGet(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(clean)}&limit=5&sfw`);
-        if (Array.isArray(jData?.data) && jData.data.length > 0) {
-            let best = null, bestScore = -1;
-            for (const a of jData.data) {
-                const img = a.images?.jpg?.large_image_url || a.images?.jpg?.image_url;
-                if (!img) continue;
-                const titles = [a.title, a.title_english, ...(a.titles || []).map(t => t.title)].filter(Boolean);
-                const cl = clean.toLowerCase();
-                const nameMatch = titles.some(t => t.toLowerCase() === cl) ? 10
-                    : titles.some(t => t.toLowerCase().includes(cl) || cl.includes(t.toLowerCase())) ? 5 : 0;
-                const yearBonus = year && String(a.year) === year ? 3 : 0;
-                const total = nameMatch + yearBonus;
-                if (total > bestScore) { bestScore = total; best = { img, title: a.title_english || a.title, year: String(a.year || '') }; }
-            }
-            if (best && bestScore >= 5) {
-                return res.json({ poster: best.img, title: best.title, year: best.year, type: 'anime' });
-            }
-        }
-    } catch { /* fall through */ }
-
-    // ── 4. Kitsu — anime fallback (free, no key) ──
-    try {
-        const kData = await httpGet(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(clean)}&page[limit]=5`);
-        if (Array.isArray(kData?.data) && kData.data.length > 0) {
-            let best = null, bestScore = -1;
-            for (const a of kData.data) {
-                const img = a.attributes?.posterImage?.large || a.attributes?.posterImage?.medium;
-                if (!img) continue;
-                const cl = clean.toLowerCase();
-                const titleEn = (a.attributes?.titles?.en || a.attributes?.titles?.en_jp || a.attributes?.canonicalTitle || '').toLowerCase();
-                const nameMatch = titleEn === cl ? 10 : (titleEn.includes(cl) || cl.includes(titleEn)) ? 5 : 0;
-                const startYear = (a.attributes?.startDate || '').slice(0, 4);
-                const yearBonus = year && startYear === year ? 3 : 0;
-                const total = nameMatch + yearBonus;
-                if (total > bestScore) { bestScore = total; best = { img, title: a.attributes?.canonicalTitle || clean, year: startYear }; }
-            }
-            if (best && bestScore >= 5) {
-                return res.json({ poster: best.img, title: best.title, year: best.year, type: 'anime' });
-            }
-        }
-    } catch { /* fall through */ }
-
-    res.json({ poster: null });
+        const result = await Promise.any([
+            tryTvmaze(clean),
+            tryAniList(clean),
+            tryJikan(clean),
+            tryKitsu(clean),
+            tryWikipedia(clean),
+        ]);
+        posterCache.set(cacheKey, result);
+        return res.json(result);
+    } catch {
+        const noResult = { poster: null };
+        posterCache.set(cacheKey, noResult);
+        return res.json(noResult);
+    }
 });
 
 // ─── Subtitles (OpenSubtitles.com REST v2) ───
