@@ -335,6 +335,9 @@ function applyBandwidthLimits() {
 }
 applyBandwidthLimits();
 
+// Track restored torrents so auto-subtitle doesn't re-fire on server restart
+const restoredHashes = new Set();
+
 // Restore saved torrents
 const savedTorrents = loadSavedTorrents();
 if (savedTorrents.length > 0) {
@@ -345,6 +348,7 @@ if (savedTorrents.length > 0) {
 
         if (st.state === 'completed') {
             completedTorrents.set(st.infoHash, { name: st.name, downloaded: st.downloaded, totalLength: st.totalLength, addedAt: st.addedAt });
+            restoredHashes.add(st.infoHash);
             console.log(`  ✓ Completed: ${st.name}`);
         } else if (st.state === 'paused') {
             // Ensure paused torrents always have a valid magnet for resume
@@ -610,17 +614,37 @@ function searchLocalLibrary(query, category) {
     const queryWords = qn.split(/\s+/).filter(Boolean);
     const items = scanLibraryItems();
     const seen = new Set();
+    const matchedDirs = new Set();
     const results = [];
 
+    const isMatch = (normalized) => {
+        const wordStartMatch = (queryWord, text) => text.split(/\s+/).some(w => w.startsWith(queryWord) || queryWord.startsWith(w));
+        const allWordsMatch = queryWords.every(w => normalized.includes(w));
+        const fuzzyMatch = normalized.includes(qn) || qn.includes(normalized);
+        const partialWordMatches = queryWords.filter(w => normalized.includes(w) || wordStartMatch(w, normalized)).length;
+        const partialMatch = queryWords.length >= 2 && partialWordMatches / queryWords.length >= 0.6;
+        return allWordsMatch || fuzzyMatch || partialMatch;
+    };
+
+    // First pass: find matching directories
+    for (const item of items) {
+        if (!item.isDir) continue;
+        const normalized = normalizeSearchName(item.name);
+        if (normalized && isMatch(normalized)) matchedDirs.add(item.path.toLowerCase());
+    }
+
+    // Second pass: collect results, skip files inside matched dirs
     for (const item of items) {
         const isMedia = item.category === 'Video' || item.category === 'Folder';
         if (!isMedia) continue;
         if (category && category !== 'All' && !['Movies', 'TV Shows', 'Anime'].includes(category)) continue;
+        // Skip files inside a matched directory
+        if (!item.isDir) {
+            const parentDir = path.dirname(item.path).toLowerCase();
+            if ([...matchedDirs].some(d => parentDir === d || parentDir.startsWith(d + path.sep))) continue;
+        }
         const normalized = normalizeSearchName(item.name);
-        if (!normalized) continue;
-        const allWordsMatch = queryWords.every(w => normalized.includes(w));
-        const fuzzyMatch = normalized.includes(qn) || qn.includes(normalized);
-        if (!allWordsMatch && !fuzzyMatch) continue;
+        if (!normalized || !isMatch(normalized)) continue;
         const dedupeKey = `${item.path}`.toLowerCase();
         if (seen.has(dedupeKey)) continue;
         seen.add(dedupeKey);
@@ -881,9 +905,143 @@ app.get('/api/magnet/:id', async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id) || id < 0 || id >= lastSearchResults.length) return res.status(400).json({ error: 'Invalid ID' });
     const result = lastSearchResults[id];
-    // All custom providers store magnet directly in _magnet field
     if (result._magnet) return res.json({ magnet: result._magnet });
     return res.status(500).json({ error: 'No magnet available for this result' });
+});
+
+// ─── Preview torrent files before download (fast — uses torrent cache) ───
+app.get('/api/torrent-files/:id', async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id) || id < 0 || id >= lastSearchResults.length) return res.status(400).json({ error: 'Invalid ID' });
+    const result = lastSearchResults[id];
+    if (!result._magnet) return res.status(400).json({ error: 'No magnet available' });
+
+    // Extract info hash (hex or base32)
+    let infoHash = null;
+    const hexMatch = result._magnet.match(/btih:([a-fA-F0-9]{40})/i);
+    if (hexMatch) {
+        infoHash = hexMatch[1].toLowerCase();
+    } else {
+        const b32Match = result._magnet.match(/btih:([A-Z2-7]{32})/i);
+        if (b32Match) {
+            const base32 = b32Match[1].toUpperCase();
+            const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+            let bits = '';
+            for (const c of base32) bits += alpha.indexOf(c).toString(2).padStart(5, '0');
+            let hex = '';
+            for (let i = 0; i + 4 <= bits.length; i += 4) hex += parseInt(bits.slice(i, i + 4), 2).toString(16);
+            infoHash = hex.slice(0, 40);
+        }
+    }
+
+    // 1. Check active client — instant
+    if (infoHash) {
+        const existing = client.torrents.find(t => t.infoHash === infoHash);
+        if (existing && existing.files && existing.files.length > 0) {
+            return res.json({
+                name: existing.name,
+                files: existing.files.map(f => ({ name: f.name, size: f.length, path: f.path })),
+            });
+        }
+    }
+
+    // 2. Try torrent cache services — fast (~1-2s)
+    if (infoHash) {
+        const HASH = infoHash.toUpperCase();
+        const cacheUrls = [
+            `https://itorrents.org/torrent/${HASH}.torrent`,
+        ];
+
+        for (const url of cacheUrls) {
+            try {
+                const torrentBuf = await new Promise((resolve, reject) => {
+                    const u = new URL(url);
+                    https.get({ hostname: u.hostname, path: u.pathname + u.search, timeout: 5000, headers: { 'User-Agent': 'VortexApp/1.0' } }, (resp) => {
+                        if (resp.statusCode === 301 || resp.statusCode === 302) {
+                            const loc = resp.headers.location;
+                            if (loc) {
+                                https.get(loc, { timeout: 5000 }, (r2) => {
+                                    if (r2.statusCode !== 200) { r2.resume(); return reject(new Error(`HTTP ${r2.statusCode}`)); }
+                                    const chunks = [];
+                                    r2.on('data', c => chunks.push(c));
+                                    r2.on('end', () => resolve(Buffer.concat(chunks)));
+                                }).on('error', reject);
+                                resp.resume();
+                                return;
+                            }
+                        }
+                        if (resp.statusCode !== 200) { resp.resume(); return reject(new Error(`HTTP ${resp.statusCode}`)); }
+                        const chunks = [];
+                        resp.on('data', c => chunks.push(c));
+                        resp.on('end', () => resolve(Buffer.concat(chunks)));
+                    }).on('error', reject).on('timeout', function() { this.destroy(); reject(new Error('timeout')); });
+                });
+
+                if (torrentBuf.length > 0 && torrentBuf[0] === 0x64) {
+                    const parseTorrent = (await import('parse-torrent')).default;
+                    const parsed = parseTorrent(torrentBuf);
+                    if (parsed && parsed.files && parsed.files.length > 0) {
+                        return res.json({
+                            name: parsed.name || result.title,
+                            files: parsed.files.map(f => ({ name: f.name, size: f.length, path: f.path })),
+                        });
+                    }
+                }
+            } catch {
+                continue;
+            }
+        }
+    }
+
+    // 3. WebTorrent fallback — try metadata from peers (10s timeout)
+    try {
+        const fileList = await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                reject(new Error('timeout'));
+            }, 10000);
+            try {
+                const tempTorrent = client.add(result._magnet, { path: path.join(os.tmpdir(), 'vortex-preview'), destroyStoreOnDestroy: true }, (torrent) => {
+                    clearTimeout(timer);
+                    const files = (torrent.files || []).map(f => ({ name: f.name, size: f.length, path: f.path }));
+                    try { client.remove(torrent.infoHash, { destroyStore: true }); } catch {}
+                    resolve({ name: torrent.name, files });
+                });
+                if (tempTorrent) {
+                    tempTorrent.on('error', (err) => {
+                        clearTimeout(timer);
+                        // Duplicate torrent — try reading from existing
+                        if (infoHash) {
+                            const existing = client.torrents.find(t => t.infoHash === infoHash);
+                            if (existing && existing.files && existing.files.length > 0) {
+                                resolve({ name: existing.name, files: existing.files.map(f => ({ name: f.name, size: f.length, path: f.path })) });
+                                return;
+                            }
+                        }
+                        reject(err);
+                    });
+                }
+            } catch (e) {
+                clearTimeout(timer);
+                // Duplicate torrent error — try reading
+                if (infoHash) {
+                    const existing = client.torrents.find(t => t.infoHash === infoHash);
+                    if (existing && existing.files && existing.files.length > 0) {
+                        resolve({ name: existing.name, files: existing.files.map(f => ({ name: f.name, size: f.length, path: f.path })) });
+                        return;
+                    }
+                }
+                reject(e);
+            }
+        });
+        return res.json(fileList);
+    } catch {
+        // Final fallback — show torrent title as estimated
+        return res.json({
+            name: result.title || 'Unknown',
+            files: [{ name: result.title || 'Unknown', size: 0, path: result.title || 'Unknown' }],
+            estimated: true,
+        });
+    }
 });
 
 // ─── Add Torrent ───
@@ -928,6 +1086,8 @@ app.post('/api/torrents', (req, res) => {
         torrent.on('done', async () => {
             console.log(`✅ Done: ${torrent.name}`);
             saveTorrentList();
+            // Don't re-trigger auto-subtitle for torrents restored from previous session
+            if (restoredHashes.has(torrent.infoHash)) return;
             if (!settings.autoSubtitle || !settings.opensubtitlesApiKey) return;
             const videoExts = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.m4v', '.ts', '.flv'];
             const videoFile = (torrent.files || []).find(f => videoExts.some(ext => f.name.toLowerCase().endsWith(ext)));
@@ -1323,7 +1483,12 @@ async function downloadSubtitleFile(apiKey, fileId, filename, destFolder) {
         headers: { 'Api-Key': apiKey, 'Content-Type': 'application/json', 'User-Agent': OSUB_UA, 'Content-Length': tokenBody.length },
         timeout: 10000,
     }, tokenBody);
-    const tokenData = JSON.parse(tokenResp.body);
+    let tokenData;
+    try {
+        tokenData = JSON.parse(tokenResp.body);
+    } catch {
+        throw new Error(`OpenSubtitles returned non-JSON (HTTP ${tokenResp.status}) — possibly rate-limited, try again later`);
+    }
     if (!tokenData.link) throw new Error(tokenData.message || 'No download link returned');
     const rawName = filename || tokenData.file_name || 'subtitle';
     const saveName = /\.(srt|ass|sub|ssa)$/i.test(rawName) ? rawName : rawName + '.srt';
@@ -1434,8 +1599,13 @@ async function osSearch(apiKey, params, lang) {
         timeout: 15000,
     });
     if (r.status !== 200) return [];
-    const data = JSON.parse(r.body);
-    return data.data || [];
+    try {
+        const data = JSON.parse(r.body);
+        return data.data || [];
+    } catch {
+        console.log(`🔕 osSearch: API returned non-JSON (status ${r.status})`);
+        return [];
+    }
 }
 
 app.get('/api/subtitles', async (req, res) => {
@@ -1513,6 +1683,83 @@ app.post('/api/subtitles/download', async (req, res) => {
         res.json({ success: true, path: savePath, filename: path.basename(savePath) });
     } catch (e) {
         console.error('Subtitle download error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ── Library Subtitle Status ──
+// Check which library items already have subtitle files
+app.get('/api/library/subtitles-status', (req, res) => {
+    const SUB_EXTS = new Set(['.srt', '.sub', '.ass', '.ssa', '.vtt', '.idx']);
+    const dlPath = settings.downloadPath;
+    if (!fs.existsSync(dlPath)) return res.json({});
+
+    const status = {};
+    try {
+        const entries = fs.readdirSync(dlPath, { withFileTypes: true });
+        for (const e of entries) {
+            if (e.name.startsWith('.') || e.name === '$RECYCLE.BIN') continue;
+            const fullPath = path.join(dlPath, e.name);
+            if (e.isDirectory()) {
+                // Check if any subtitle file exists inside the folder
+                try {
+                    const inner = fs.readdirSync(fullPath);
+                    const hasSub = inner.some(f => SUB_EXTS.has(path.extname(f).toLowerCase()));
+                    status[e.name] = hasSub;
+                } catch { status[e.name] = false; }
+            } else {
+                // Check if a subtitle file with same base name exists
+                const baseName = path.parse(e.name).name;
+                const dirFiles = entries.map(en => en.name);
+                const hasSub = dirFiles.some(f => {
+                    const fb = path.parse(f).name;
+                    const fExt = path.extname(f).toLowerCase();
+                    return SUB_EXTS.has(fExt) && fb.startsWith(baseName);
+                });
+                status[e.name] = hasSub;
+            }
+        }
+    } catch { /* ignore */ }
+    res.json(status);
+});
+
+// Manual auto-subtitle trigger for a library item
+app.post('/api/library/auto-subtitle', async (req, res) => {
+    const { itemName, itemPath, isDir } = req.body;
+    if (!itemName) return res.status(400).json({ error: 'itemName required' });
+
+    const apiKey = settings.opensubtitlesApiKey;
+    if (!apiKey) return res.status(503).json({ error: 'NO_API_KEY', message: 'OpenSubtitles API key not set.' });
+
+    // Build search name from the item name
+    const searchName = (itemName || '')
+        .replace(/\.[^.]+$/, '')
+        .replace(/[._+\-\[\]\(\)]+/g, ' ')
+        .replace(/\b(720p|1080p|2160p|4k|bluray|brrip|bdrip|webrip|web[. -]?dl|x264|x265|hevc|avc|xvid|hdr|dv|dts|aac|ac3|remux|repack|proper|extended)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const destFolder = itemPath && isDir ? itemPath : (itemPath ? path.dirname(itemPath) : settings.downloadPath);
+    const lang = settings.subtitleLang || 'en';
+
+    console.log(`🎬 Manual auto-subtitle: "${searchName}" [${lang}] → ${destFolder}`);
+    try {
+        const items = await osSearch(apiKey, {
+            query: searchName,
+            languages: lang,
+            order_by: 'download_count',
+            order_direction: 'desc',
+        }, lang);
+        const mapped = mapOsItems(items.slice(0, 1), lang);
+        if (!mapped.length || !mapped[0].fileId) {
+            return res.json({ success: false, message: 'No subtitles found for this item.' });
+        }
+        const sub = mapped[0];
+        const saved = await downloadSubtitleFile(apiKey, sub.fileId, sub.name, destFolder);
+        console.log(`✅ Manual auto-subtitle saved: ${path.basename(saved)}`);
+        res.json({ success: true, filename: path.basename(saved), lang });
+    } catch (e) {
+        console.error(`🔕 Manual auto-subtitle error: ${e.message}`);
         res.status(500).json({ error: e.message });
     }
 });

@@ -70,8 +70,15 @@ export default function SearchPage() {
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
     const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
 
+    // File preview state
+    const [filesOpenId, setFilesOpenId] = useState<number | null>(null);
+    const [filesLoading, setFilesLoading] = useState(false);
+    const [filesData, setFilesData] = useState<{ name: string; files: { name: string; size: number; path: string }[]; estimated?: boolean } | null>(null);
+    const [filesError, setFilesError] = useState('');
+
     const sortRef = useRef<HTMLDivElement>(null);
     const suggestionRef = useRef<HTMLDivElement>(null);
+    const searchSubmittedRef = useRef(false);
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -89,6 +96,8 @@ export default function SearchPage() {
             return;
         }
         const results = await getSuggestions(q);
+        // Don't re-show suggestions if a search was already submitted
+        if (searchSubmittedRef.current) return;
         setSuggestions(results);
         setShowSuggestions(results.length > 0);
     }, [getSuggestions]);
@@ -152,11 +161,40 @@ export default function SearchPage() {
         }
     };
 
+    // File preview toggle
+    const toggleFilesPreview = async (resId: number) => {
+        if (filesOpenId === resId) { setFilesOpenId(null); return; }
+        setFilesOpenId(resId);
+        setFilesLoading(true);
+        setFilesData(null);
+        setFilesError('');
+        try {
+            const r = await fetch(`http://localhost:3001/api/torrent-files/${resId}`);
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Failed to fetch files');
+            setFilesData(data);
+        } catch (e: unknown) {
+            setFilesError(e instanceof Error ? e.message : 'Failed to load files');
+        } finally {
+            setFilesLoading(false);
+        }
+    };
+
+    const formatFileSize = (bytes: number) => {
+        if (!bytes || bytes <= 0) return '—';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    };
+
     const handleSearch = (e?: React.FormEvent, qOverride?: string) => {
         if (e) e.preventDefault();
+        searchSubmittedRef.current = true;
+        setShowSuggestions(false);
+        setSuggestions([]);
         const q = (qOverride || searchQuery).trim();
         if (q) {
-            setShowSuggestions(false);
             setSearchedOnce(true);
             doSearch(q);
         }
@@ -382,6 +420,7 @@ export default function SearchPage() {
                         <input
                             type="text" value={searchQuery}
                             onChange={(e) => {
+                                searchSubmittedRef.current = false;
                                 setSearchQuery(e.target.value);
                                 updateSuggestions(e.target.value);
                             }}
@@ -516,11 +555,6 @@ export default function SearchPage() {
                                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><rect x="1" y="1" width="4" height="4" rx="0.8" /><rect x="7" y="1" width="4" height="4" rx="0.8" /><rect x="1" y="7" width="4" height="4" rx="0.8" /><rect x="7" y="7" width="4" height="4" rx="0.8" /></svg>
                                 Group series
                             </button>
-                            <button onClick={handleClear}
-                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-xs text-text-3 hover:text-white hover:bg-white/[0.06] transition-all">
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                Clear
-                            </button>
                             <div className="relative" ref={sortRef}>
                                 <button onClick={() => setSortOpen(!sortOpen)}
                                     className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06] text-sm text-text-2 hover:text-white transition-all">
@@ -617,14 +651,55 @@ export default function SearchPage() {
                                                                 <span className="text-text-3/40 uppercase tracking-widest">{res.provider}</span>
                                                             </div>
                                                         </div>
-                                                        <button onClick={() => handleAdd(res.id)} disabled={res.inLibrary || addingId === res.id || addedIds.has(res.id)}
-                                                            className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
-                                                                errorId === res.id ? 'bg-red-500/15 text-red-400' :
-                                                                    addingId === res.id ? 'bg-accent/10 text-accent/60' :
-                                                                        'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
-                                                                }`}>
-                                                            {res.inLibrary ? '✓' : addedIds.has(res.id) ? '✓' : errorId === res.id ? '✗' : addingId === res.id ? '...' : '+'}
-                                                        </button>
+                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                            <button onClick={() => toggleFilesPreview(res.id)}
+                                                                title="Preview files"
+                                                                className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${filesOpenId === res.id
+                                                                    ? 'bg-accent/20 border-accent/40 text-accent'
+                                                                    : 'bg-white/[0.04] border-white/[0.08] text-text-3 hover:text-accent hover:border-accent/30 hover:bg-accent/10'}`}>
+                                                                📂
+                                                            </button>
+                                                            <button onClick={() => handleAdd(res.id)} disabled={res.inLibrary || addingId === res.id || addedIds.has(res.id)}
+                                                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
+                                                                    errorId === res.id ? 'bg-red-500/15 text-red-400' :
+                                                                        addingId === res.id ? 'bg-accent/10 text-accent/60' :
+                                                                            'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
+                                                                    }`}>
+                                                                {res.inLibrary ? '✓' : addedIds.has(res.id) ? '✓' : errorId === res.id ? '✗' : addingId === res.id ? '...' : '+'}
+                                                            </button>
+                                                        </div>
+                                                        {/* File preview panel for grouped episode */}
+                                                        {filesOpenId === res.id && (
+                                                            <div className="col-span-full mt-2 border border-white/[0.06] bg-black/20 rounded-xl p-4 space-y-2">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-xs text-accent font-bold uppercase tracking-wider">📂 Files</span>
+                                                                    {filesData && <span className="text-[10px] text-text-3">({filesData.files.length} file{filesData.files.length !== 1 ? 's' : ''})</span>}
+                                                                </div>
+                                                                {filesLoading && (
+                                                                    <div className="flex items-center gap-3 py-3">
+                                                                        <div className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                                                                        <span className="text-xs text-text-3">Fetching metadata from peers...</span>
+                                                                    </div>
+                                                                )}
+                                                                {filesError && <p className="text-xs text-red-400">{filesError}</p>}
+                                                                {!filesLoading && filesData && filesData.files.length > 0 && (
+                                                                    <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                                                                        {filesData.files.map((f, fi) => (
+                                                                            <div key={fi} className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-white/[0.02] border border-white/[0.04] text-xs">
+                                                                                <span className="shrink-0 text-text-3">
+                                                                                    {/\.(mkv|mp4|avi|mov|wmv|m4v|ts|flv)$/i.test(f.name) ? '🎬' :
+                                                                                     /\.(srt|sub|ass|ssa|vtt)$/i.test(f.name) ? '📝' :
+                                                                                     /\.(nfo|txt)$/i.test(f.name) ? '📄' :
+                                                                                     /\.(jpg|jpeg|png|gif)$/i.test(f.name) ? '🖼️' : '📦'}
+                                                                                </span>
+                                                                                <span className="flex-1 min-w-0 text-white truncate">{f.name}</span>
+                                                                                <span className="shrink-0 text-text-3 font-mono">{formatFileSize(f.size)}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 );
                                             })}
@@ -673,6 +748,15 @@ export default function SearchPage() {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
+                                            {/* Files preview button */}
+                                            <button
+                                                onClick={() => toggleFilesPreview(res.id)}
+                                                title="Preview files"
+                                                className={`px-3 py-2.5 rounded-xl text-xs font-bold border transition-all ${filesOpenId === res.id
+                                                    ? 'bg-accent/20 border-accent/40 text-accent'
+                                                    : 'bg-white/[0.04] border-white/[0.08] text-text-3 hover:text-accent hover:border-accent/30 hover:bg-accent/10'}`}>
+                                                📂
+                                            </button>
                                             {/* CC / Subtitles button */}
                                             <button
                                                 onClick={() => openSubPanel(res)}
@@ -692,6 +776,39 @@ export default function SearchPage() {
                                             </button>
                                         </div>
                                     </div>
+
+                                    {/* Files Preview Panel */}
+                                    {filesOpenId === res.id && (
+                                        <div className="border-t border-white/[0.06] bg-black/20 p-5 space-y-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs text-accent font-bold uppercase tracking-wider">📂 Files</span>
+                                                {filesData && <span className="text-[10px] text-text-3">({filesData.files.length} file{filesData.files.length !== 1 ? 's' : ''})</span>}
+                                            </div>
+                                            {filesLoading && (
+                                                <div className="flex items-center gap-3 py-4">
+                                                    <div className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                                                    <span className="text-xs text-text-3">Fetching metadata from peers...</span>
+                                                </div>
+                                            )}
+                                            {filesError && <p className="text-xs text-red-400">{filesError}</p>}
+                                            {!filesLoading && filesData && filesData.files.length > 0 && (
+                                                <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                                                    {filesData.files.map((f, fi) => (
+                                                        <div key={fi} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs">
+                                                            <span className="shrink-0 text-text-3">
+                                                                {/\.(mkv|mp4|avi|mov|wmv|m4v|ts|flv)$/i.test(f.name) ? '🎬' :
+                                                                 /\.(srt|sub|ass|ssa|vtt)$/i.test(f.name) ? '📝' :
+                                                                 /\.(nfo|txt)$/i.test(f.name) ? '📄' :
+                                                                 /\.(jpg|jpeg|png|gif)$/i.test(f.name) ? '🖼️' : '📦'}
+                                                            </span>
+                                                            <span className="flex-1 min-w-0 text-white truncate">{f.name}</span>
+                                                            <span className="shrink-0 text-text-3 font-mono">{formatFileSize(f.size)}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {/* Subtitle Panel — inline below card */}
                                     {subOpenId === res.id && (
