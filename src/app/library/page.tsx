@@ -252,7 +252,7 @@ export default function LibraryPage() {
                 if (signal.aborted) break;
                 const batch = needsPoster.slice(i, i + BATCH);
                 await Promise.all(batch.map(async item => {
-                    const q = cleanVideoName(item.name);
+                    const q = cleanVideoName((item as any).representativeName || item.name);
                     if (!q) { setPosters(prev => ({ ...prev, [item.name]: null })); return; }
                     try {
                         const r = await axios.get(`${API_BASE}/api/poster?q=${encodeURIComponent(q)}`, { signal, timeout: 12000 });

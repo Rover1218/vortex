@@ -558,9 +558,24 @@ function scanLibraryItems() {
                 try {
                     const stat = fs.statSync(fullPath);
                     if (e.isDirectory()) {
+                        // For folders, find the largest video file inside (recursively or just one level)
+                        // to help with poster fetching
+                        let bestVideo = null;
+                        try {
+                            const subEntries = fs.readdirSync(fullPath, { withFileTypes: true });
+                            let maxS = -1;
+                            for (const se of subEntries) {
+                                if (se.isFile() && VIDEO_EXT.has(path.extname(se.name).toLowerCase())) {
+                                    const ss = fs.statSync(path.join(fullPath, se.name)).size;
+                                    if (ss > maxS) { maxS = ss; bestVideo = se.name; }
+                                }
+                            }
+                        } catch { }
+
                         results.push({
                             name: e.name, path: fullPath, isDir: true,
-                            size: 0, modified: stat.mtime.toISOString(), category: 'Folder'
+                            size: 0, modified: stat.mtime.toISOString(), category: 'Folder',
+                            representativeName: bestVideo || e.name
                         });
                         results = results.concat(walk(fullPath, depth + 1));
                     } else {
@@ -955,26 +970,25 @@ app.get('/api/torrent-files/:id', async (req, res) => {
         for (const url of cacheUrls) {
             try {
                 const torrentBuf = await new Promise((resolve, reject) => {
-                    const u = new URL(url);
-                    https.get({ hostname: u.hostname, path: u.pathname + u.search, timeout: 5000, headers: { 'User-Agent': 'VortexApp/1.0' } }, (resp) => {
-                        if (resp.statusCode === 301 || resp.statusCode === 302) {
-                            const loc = resp.headers.location;
-                            if (loc) {
-                                https.get(loc, { timeout: 5000 }, (r2) => {
-                                    if (r2.statusCode !== 200) { r2.resume(); return reject(new Error(`HTTP ${r2.statusCode}`)); }
-                                    const chunks = [];
-                                    r2.on('data', c => chunks.push(c));
-                                    r2.on('end', () => resolve(Buffer.concat(chunks)));
-                                }).on('error', reject);
-                                resp.resume();
-                                return;
+                    const fetchWithRedirect = (currentUrl, depth = 0) => {
+                        if (depth > 3) return reject(new Error('Too many redirects'));
+                        const u = new URL(currentUrl);
+                        const mod = u.protocol === 'https:' ? https : http;
+                        mod.get({ hostname: u.hostname, path: u.pathname + u.search, timeout: 5000, headers: { 'User-Agent': 'VortexApp/1.0' } }, (resp) => {
+                            if (resp.statusCode === 301 || resp.statusCode === 302) {
+                                const loc = resp.headers.location;
+                                if (loc) {
+                                    resp.resume();
+                                    return fetchWithRedirect(new URL(loc, currentUrl).href, depth + 1);
+                                }
                             }
-                        }
-                        if (resp.statusCode !== 200) { resp.resume(); return reject(new Error(`HTTP ${resp.statusCode}`)); }
-                        const chunks = [];
-                        resp.on('data', c => chunks.push(c));
-                        resp.on('end', () => resolve(Buffer.concat(chunks)));
-                    }).on('error', reject).on('timeout', function() { this.destroy(); reject(new Error('timeout')); });
+                            if (resp.statusCode !== 200) { resp.resume(); return reject(new Error(`HTTP ${resp.statusCode}`)); }
+                            const chunks = [];
+                            resp.on('data', c => chunks.push(c));
+                            resp.on('end', () => resolve(Buffer.concat(chunks)));
+                        }).on('error', reject).on('timeout', function() { this.destroy(); reject(new Error('timeout')); });
+                    };
+                    fetchWithRedirect(url);
                 });
 
                 if (torrentBuf.length > 0 && torrentBuf[0] === 0x64) {
@@ -1315,13 +1329,17 @@ function httpPost(urlStr, body, timeout = 9000) {
 }
 
 function cleanTitle(q) {
+    const QUALITY_TAGS = ['1080p', '720p', '4k', '2160p', 'bluray', 'bdrip', 'webrip', 'webdl', 'hdtv', 'x264', 'x265', 'hevc'];
+    
     // Extract bracket content (e.g., "[Taare Zameen Par]") as canonical alt title
-    const bracketMatch = q.match(/\[([^\]]{2,})\]/);
-    const altTitle = bracketMatch ? bracketMatch[1].trim() : '';
+    const brackets = [...q.matchAll(/\[([^\]]{2,})\]/g)].map(m => m[1].trim());
+    // Filter out quality tags or short strings from being the "altTitle"
+    const altTitle = brackets.find(t => t.length > 2 && !QUALITY_TAGS.some(tag => t.toLowerCase().includes(tag))) || '';
+    
     let s = q.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/[._]/g, ' ');
     const yearMatch = s.match(/\b((?:19|20)\d{2})\b/);
     const year = yearMatch ? yearMatch[1] : '';
-    const cutIdx = s.search(/\b((?:19|20)\d{2}|720p|1080p|2160p|4k|bluray|bdrip|hdtv|webrip|web[-. ]?dl|x264|x265|hevc|xvid|remux|repack|proper|s\d{1,2}e\d{1,2}|ep\d+)\b/i);
+    const cutIdx = s.search(/\b((?:19|20)\d{2}|720p|1080p|2160p|4k|bluray|bdrip|hdtv|webrip|web[-. ]?dl|x264|x265|hevc|xvid|remux|repack|proper|s\d{1,2}e\d{1,2}|ep\d+|hc)\b/i);
     s = (cutIdx > 2 ? s.slice(0, cutIdx) : s).replace(/\s*-\s*[A-Za-z0-9]{2,}$/, '').replace(/\s+/g, ' ').trim();
     return { clean: s, year, altTitle };
 }
@@ -1334,9 +1352,6 @@ app.get('/api/poster', async (req, res) => {
     if (!q) return res.status(400).json({ error: 'Missing query' });
     const { clean, year, altTitle } = cleanTitle(q);
     if (!clean) return res.json({ poster: null });
-
-    const cacheKey = `${clean}|${altTitle}|${year}`;
-    if (posterCache.has(cacheKey)) return res.json(posterCache.get(cacheKey));
 
     async function tryTvmaze(title) {
         const tvData = await httpGet(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(title)}`, 5000);
@@ -1410,6 +1425,44 @@ app.get('/api/poster', async (req, res) => {
         return { poster: best.img, title: best.title, year: best.year, type: 'anime' };
     }
 
+    async function tryTmdb(title, yearHint) {
+        if (!settings.tmdbApiKey) throw new Error('no tmdb api key');
+        const url = `https://api.themoviedb.org/3/search/multi?api_key=${settings.tmdbApiKey}&query=${encodeURIComponent(title)}&include_adult=false`;
+        const data = await httpGet(url, 5000);
+        const list = data?.results || [];
+        if (!list.length) throw new Error('no results');
+
+        let best = null, bestScore = -1;
+        for (const item of list) {
+            const img = item.poster_path;
+            if (!img) continue;
+
+            const itemTitle = item.title || item.name || item.original_title || item.original_name;
+            const cl = title.toLowerCase();
+            const itl = itemTitle.toLowerCase();
+
+            let score = 0;
+            if (itl === cl) score += 10;
+            else if (itl.includes(cl) || cl.includes(itl)) score += 5;
+
+            const releaseDate = item.release_date || item.first_air_date || '';
+            const itemYear = releaseDate.slice(0, 4);
+            if (yearHint && itemYear === yearHint) score += 5;
+
+            if (score > bestScore) {
+                bestScore = score;
+                best = {
+                    poster: `https://image.tmdb.org/t/p/w500${img}`,
+                    title: itemTitle,
+                    year: itemYear,
+                    type: item.media_type
+                };
+            }
+        }
+        if (!best || bestScore < 5) throw new Error('no confident match');
+        return best;
+    }
+
     async function tryWikipedia(title) {
         const attempts = [
             title,
@@ -1440,18 +1493,43 @@ app.get('/api/poster', async (req, res) => {
         throw new Error('no match');
     }
 
-    // Phase 1: If altTitle exists (e.g., "Taare Zameen Par" from "[Taare Zameen Par]"),
-    // try Wikipedia with it first — it's the canonical original-language title and will
-    // have its own Wikipedia article, avoiding mismatches on the English translation.
-    if (altTitle) {
+    const cacheKey = `${clean}|${altTitle}|${year}`;
+    if (posterCache.has(cacheKey)) return res.json(posterCache.get(cacheKey));
+
+    console.log(`🎬 Poster search: "${clean}" (Year: ${year}, Alt: ${altTitle})`);
+
+    // Phase 1: TMDb Try
+    const QUALITY_TAGS = ['1080p', '720p', '4k', '2160p', 'bluray', 'bdrip', 'webrip', 'webdl', 'hdtv', 'x264', 'x265', 'hevc'];
+    const isRealTitle = (t) => t && t.length > 2 && !QUALITY_TAGS.some(tag => t.toLowerCase().includes(tag));
+
+    try {
+        let result = null;
+        try {
+            result = await tryTmdb(clean, year);
+        } catch (e) {
+            if (altTitle && isRealTitle(altTitle)) {
+                result = await tryTmdb(altTitle, year);
+            } else {
+                throw e;
+            }
+        }
+        console.log(`   ✓ TMDb match: ${result.title} (${result.year})`);
+        posterCache.set(cacheKey, result);
+        return res.json(result);
+    } catch { 
+        console.log(`   ✗ TMDb failed, trying fallbacks...`);
+    }
+
+    // Phase 2: AltTitle Wikipedia (legacy logic)
+    if (altTitle && isRealTitle(altTitle)) {
         try {
             const result = await tryWikipedia(altTitle);
             posterCache.set(cacheKey, result);
             return res.json(result);
-        } catch { /* fall through to parallel race */ }
+        } catch { }
     }
 
-    // Phase 2: Race all sources simultaneously — first confident match wins
+    // Phase 3: Race all sources simultaneously — first confident match wins
     try {
         const result = await Promise.any([
             tryTvmaze(clean),

@@ -356,25 +356,43 @@ export default function SearchPage() {
     }, [searchResults, setPosters]);
 
     // Fetch posters for TV groups and visible flat items whenever results change
+    const fetchingRef = useRef<Set<string>>(new Set());
     useEffect(() => {
+        if (searchResults.length === 0) {
+            setPosters({});
+            fetchingRef.current.clear();
+            return;
+        }
+
         const toFetch: { key: string; query: string }[] = [];
         [...groups.values()].forEach(g => {
-            if (posters[g.key] === undefined) toFetch.push({ key: g.key, query: g.showName });
+            if (posters[g.key] === undefined && !fetchingRef.current.has(g.key)) {
+                toFetch.push({ key: g.key, query: g.showName });
+            }
         });
         flatItems.slice(0, 40).forEach(r => {
             const k = `flat_${r.id}`;
-            if (posters[k] === undefined) toFetch.push({ key: k, query: r.title });
+            if (posters[k] === undefined && !fetchingRef.current.has(k)) {
+                toFetch.push({ key: k, query: r.title });
+            }
         });
+
         if (toFetch.length === 0) return;
+
+        // Mark as loading locally (avoiding state trigger for now to bundle)
+        toFetch.forEach(({ key }) => fetchingRef.current.add(key));
+
         setPosters(prev => {
             const next = { ...prev };
             toFetch.forEach(({ key }) => { if (next[key] === undefined) next[key] = 'loading'; });
             return next;
         });
+
         const controller = new AbortController();
         (async () => {
-            const batchSize = 8;
+            const batchSize = 6;
             for (let i = 0; i < toFetch.length; i += batchSize) {
+                if (controller.signal.aborted) break;
                 const batch = toFetch.slice(i, i + batchSize);
                 await Promise.all(batch.map(async ({ key, query }) => {
                     try {
@@ -383,12 +401,22 @@ export default function SearchPage() {
                         setPosters(prev => ({ ...prev, [key]: data?.poster ?? null }));
                     } catch {
                         if (!controller.signal.aborted) setPosters(prev => ({ ...prev, [key]: null }));
+                    } finally {
+                        fetchingRef.current.delete(key);
                     }
                 }));
-                if (controller.signal.aborted) break;
+                if (toFetch.length > batchSize && !controller.signal.aborted) await new Promise(res => setTimeout(res, 100));
             }
         })();
-        return () => controller.abort();
+
+        // Only abort if this specific effect run is cleaned up (results changed drastically)
+        // But we want to keep fetches for stable items.
+        // Actually, if we use fetchingRef, we don't necessarily need to abort previous ones
+        // unless they are for items no longer in the list.
+        return () => {
+            // We don't abort here to allow background fetches to complete
+            // unless search results were cleared.
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [groups, flatItems]);
 
