@@ -178,7 +178,7 @@ export default function LibraryPage() {
         setLoading(true);
         Promise.all([
             fetchLibrary(),
-            axios.get(`${API_BASE}/api/library/subtitles-status`).then(r => setSubStatus(r.data || {})).catch(() => {}),
+            axios.get(`${API_BASE}/api/library/subtitles-status`).then(r => setSubStatus(r.data || {})).catch(() => { }),
         ]).finally(() => setLoading(false));
     }, [fetchLibrary]);
 
@@ -488,94 +488,95 @@ export default function LibraryPage() {
                     {filtered.map((item, idx) => {
                         const dlStatus = getTorrentStatus(item.name);
                         return (
-                        <div key={idx} className={`group rounded-2xl bg-white/[0.02] border hover:bg-white/[0.04] transition-all flex flex-col gap-0 overflow-hidden ${dlStatus.status === 'completed' ? 'border-teal/15' : dlStatus.status === 'downloading' ? 'border-accent/15' : 'border-white/[0.04] hover:border-white/[0.08]'}`}>
-                            {/* Poster or skeleton or icon banner */}
-                            {(item.category === 'Video' || item.isDir) && posters[item.name] === 'loading' ? (
-                                <div className="w-full aspect-[2/3] bg-white/[0.04] animate-pulse rounded-t-xl flex items-center justify-center">
-                                    <svg className="w-6 h-6 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                </div>
-                            ) : typeof posters[item.name] === 'string' && posters[item.name] !== 'loading' ? (
-                                <div className="relative w-full aspect-[2/3] overflow-hidden bg-black/30">
-                                    <img src={posters[item.name] as string} alt={item.name}
-                                        className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
-                                        onError={() => setPosters(prev => ({ ...prev, [item.name]: null }))}
-                                    />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-[#0e0e1a]/80 via-transparent to-transparent" />
-                                    <span className={`absolute top-2 right-2 px-2 py-0.5 rounded-lg text-[9px] font-bold border ${CATEGORY_COLORS[item.category] || CATEGORY_COLORS.Other}`}>
-                                        {item.category}
-                                    </span>
-                                    {/* Download status badge on poster */}
-                                    {dlStatus.status === 'completed' && (
-                                        <span className="absolute top-2 left-2 w-7 h-7 rounded-full bg-teal/90 flex items-center justify-center shadow-lg shadow-teal/30 ring-2 ring-teal/30">
-                                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
+                            <div key={idx} className={`group rounded-2xl bg-white/[0.02] border hover:bg-white/[0.04] transition-all flex flex-col gap-0 overflow-hidden ${dlStatus.status === 'completed' ? 'border-teal/15' : dlStatus.status === 'downloading' ? 'border-accent/15' : 'border-white/[0.04] hover:border-white/[0.08]'}`}>
+                                {/* Poster or skeleton or icon banner */}
+                                {(item.category === 'Video' || item.isDir) && posters[item.name] === 'loading' ? (
+                                    <div className="w-full aspect-[2/3] bg-white/[0.04] animate-pulse rounded-t-xl flex items-center justify-center">
+                                        <svg className="w-6 h-6 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                    </div>
+                                ) : typeof posters[item.name] === 'string' && posters[item.name] !== 'loading' ? (
+                                    <div className="relative w-full aspect-[2/3] overflow-hidden bg-black/30">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={posters[item.name] as string} alt={item.name}
+                                            className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
+                                            onError={() => setPosters(prev => ({ ...prev, [item.name]: null }))}
+                                        />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-[#0e0e1a]/80 via-transparent to-transparent" />
+                                        <span className={`absolute top-2 right-2 px-2 py-0.5 rounded-lg text-[9px] font-bold border ${CATEGORY_COLORS[item.category] || CATEGORY_COLORS.Other}`}>
+                                            {item.category}
                                         </span>
-                                    )}
-                                    {dlStatus.status === 'downloading' && (
-                                        <span className="absolute top-2 left-2 px-2 py-1 rounded-lg bg-accent/90 text-white text-[9px] font-black shadow-lg shadow-accent/30 ring-1 ring-accent/40 flex items-center gap-1 animate-pulse">
-                                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 1v6M3 5l2 2 2-2" /><path d="M1 8h8" /></svg>
-                                            {parseFloat(dlStatus.progress || '0').toFixed(0)}%
-                                        </span>
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="px-4 pt-4 pb-0 flex items-center justify-between">
-                                    <span className="text-2xl">{CATEGORY_ICONS[item.category] || "📄"}</span>
-                                    <div className="flex items-center gap-2">
+                                        {/* Download status badge on poster */}
                                         {dlStatus.status === 'completed' && (
-                                            <span className="w-6 h-6 rounded-full bg-teal/90 flex items-center justify-center shadow-md shadow-teal/20">
-                                                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
+                                            <span className="absolute top-2 left-2 w-7 h-7 rounded-full bg-teal/90 flex items-center justify-center shadow-lg shadow-teal/30 ring-2 ring-teal/30">
+                                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
                                             </span>
                                         )}
                                         {dlStatus.status === 'downloading' && (
-                                            <span className="px-2 py-0.5 rounded-lg bg-accent/20 text-accent text-[9px] font-black border border-accent/20 animate-pulse">
-                                                ↓ {parseFloat(dlStatus.progress || '0').toFixed(0)}%
+                                            <span className="absolute top-2 left-2 px-2 py-1 rounded-lg bg-accent/90 text-white text-[9px] font-black shadow-lg shadow-accent/30 ring-1 ring-accent/40 flex items-center gap-1 animate-pulse">
+                                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 1v6M3 5l2 2 2-2" /><path d="M1 8h8" /></svg>
+                                                {parseFloat(dlStatus.progress || '0').toFixed(0)}%
                                             </span>
                                         )}
-                                        <span className={`px-2 py-0.5 rounded-lg text-[9px] font-bold border ${CATEGORY_COLORS[item.category] || CATEGORY_COLORS.Other}`}>
-                                            {item.category}
-                                        </span>
                                     </div>
-                                </div>
-                            )}
-                            {/* Name + meta */}
-                            <div className="flex flex-col gap-2 p-4 flex-1">
-                                <p className="text-xs font-semibold text-white leading-tight line-clamp-2 break-all">{item.name}</p>
-                                <div className="mt-auto flex items-center justify-between text-[10px] text-text-3">
-                                    <span className="font-mono">{item.isDir ? "—" : formatSize(item.size)}</span>
-                                    <div className="flex items-center gap-1.5">
-                                        <span>{formatDate(item.modified)}</span>
-                                        {(item.category === "Video" || (item.isDir && findVideoInFolder(item.path))) && dlStatus.status !== 'downloading' && (
-                                            <>
-                                                {/* Subtitle status */}
-                                                {(subStatus[item.name] || autoSubDone.has(item.name)) ? (
-                                                    <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-teal/15 text-teal text-[9px] font-bold border border-teal/15" title="Subtitles available">
-                                                        CC ✓
-                                                    </span>
-                                                ) : autoSubTriggering === item.name ? (
-                                                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-accent/15 text-accent text-[9px] font-bold border border-accent/15 animate-pulse">
-                                                        <svg className="w-3 h-3 animate-spin" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="6" cy="6" r="5" strokeDasharray="20" strokeDashoffset="5" /></svg>
-                                                        CC
-                                                    </span>
-                                                ) : (
-                                                    <button onClick={(e) => { e.stopPropagation(); triggerAutoSub(item); }}
-                                                        className="opacity-0 group-hover:opacity-100 transition-all flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-accent/10 text-accent hover:bg-accent/20 border border-accent/15 text-[9px] font-bold"
-                                                        title="Auto-download subtitles">
-                                                        <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 1v6M3 5l2 2 2-2" /><path d="M1 8h8" /></svg>
-                                                        CC
-                                                    </button>
-                                                )}
-                                                <button onClick={() => {
-                                                    const target = item.isDir ? findVideoInFolder(item.path)! : item;
-                                                    openSubPanel(target);
-                                                }}
-                                                    className="opacity-0 group-hover:opacity-100 transition-all w-6 h-6 rounded-lg flex items-center justify-center bg-teal/15 text-teal hover:bg-teal/25 border border-teal/15 text-[9px] font-black"
-                                                    title="Browse subtitles">CC</button>
-                                            </>
-                                        )}
+                                ) : (
+                                    <div className="px-4 pt-4 pb-0 flex items-center justify-between">
+                                        <span className="text-2xl">{CATEGORY_ICONS[item.category] || "📄"}</span>
+                                        <div className="flex items-center gap-2">
+                                            {dlStatus.status === 'completed' && (
+                                                <span className="w-6 h-6 rounded-full bg-teal/90 flex items-center justify-center shadow-md shadow-teal/20">
+                                                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
+                                                </span>
+                                            )}
+                                            {dlStatus.status === 'downloading' && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-accent/20 text-accent text-[9px] font-black border border-accent/20 animate-pulse">
+                                                    ↓ {parseFloat(dlStatus.progress || '0').toFixed(0)}%
+                                                </span>
+                                            )}
+                                            <span className={`px-2 py-0.5 rounded-lg text-[9px] font-bold border ${CATEGORY_COLORS[item.category] || CATEGORY_COLORS.Other}`}>
+                                                {item.category}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                                {/* Name + meta */}
+                                <div className="flex flex-col gap-2 p-4 flex-1">
+                                    <p className="text-xs font-semibold text-white leading-tight line-clamp-2 break-all">{item.name}</p>
+                                    <div className="mt-auto flex items-center justify-between text-[10px] text-text-3">
+                                        <span className="font-mono">{item.isDir ? "—" : formatSize(item.size)}</span>
+                                        <div className="flex items-center gap-1.5">
+                                            <span>{formatDate(item.modified)}</span>
+                                            {(item.category === "Video" || (item.isDir && findVideoInFolder(item.path))) && dlStatus.status !== 'downloading' && (
+                                                <>
+                                                    {/* Subtitle status */}
+                                                    {(subStatus[item.name] || autoSubDone.has(item.name)) ? (
+                                                        <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-teal/15 text-teal text-[9px] font-bold border border-teal/15" title="Subtitles available">
+                                                            CC ✓
+                                                        </span>
+                                                    ) : autoSubTriggering === item.name ? (
+                                                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-accent/15 text-accent text-[9px] font-bold border border-accent/15 animate-pulse">
+                                                            <svg className="w-3 h-3 animate-spin" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="6" cy="6" r="5" strokeDasharray="20" strokeDashoffset="5" /></svg>
+                                                            CC
+                                                        </span>
+                                                    ) : (
+                                                        <button onClick={(e) => { e.stopPropagation(); triggerAutoSub(item); }}
+                                                            className="opacity-0 group-hover:opacity-100 transition-all flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-accent/10 text-accent hover:bg-accent/20 border border-accent/15 text-[9px] font-bold"
+                                                            title="Auto-download subtitles">
+                                                            <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 1v6M3 5l2 2 2-2" /><path d="M1 8h8" /></svg>
+                                                            CC
+                                                        </button>
+                                                    )}
+                                                    <button onClick={() => {
+                                                        const target = item.isDir ? findVideoInFolder(item.path)! : item;
+                                                        openSubPanel(target);
+                                                    }}
+                                                        className="opacity-0 group-hover:opacity-100 transition-all w-6 h-6 rounded-lg flex items-center justify-center bg-teal/15 text-teal hover:bg-teal/25 border border-teal/15 text-[9px] font-black"
+                                                        title="Browse subtitles">CC</button>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
                         );
                     })}
                 </div>
@@ -584,61 +585,61 @@ export default function LibraryPage() {
                     {filtered.map((item, idx) => {
                         const dlStatus = getTorrentStatus(item.name);
                         return (
-                        <div key={idx} className={`group flex items-center gap-4 px-5 py-3 rounded-xl bg-white/[0.02] border hover:bg-white/[0.04] transition-all ${dlStatus.status === 'completed' ? 'border-teal/15 hover:border-teal/25' : dlStatus.status === 'downloading' ? 'border-accent/15 hover:border-accent/25' : 'border-white/[0.04] hover:border-white/[0.08]'}`}>
-                            <span className="text-xl shrink-0">{CATEGORY_ICONS[item.category] || "📄"}</span>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-white truncate">{item.name}</p>
-                                <p className="text-[10px] text-text-3 mt-0.5 truncate">{item.path}</p>
-                            </div>
-                            {/* Download status badge */}
-                            {dlStatus.status === 'completed' && (
-                                <span className="shrink-0 w-7 h-7 rounded-full bg-teal/90 flex items-center justify-center shadow-md shadow-teal/20">
-                                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
-                                </span>
-                            )}
-                            {dlStatus.status === 'downloading' && (
-                                <span className="shrink-0 px-2.5 py-1 rounded-lg bg-accent/15 text-accent text-[10px] font-black border border-accent/20 flex items-center gap-1.5 animate-pulse">
-                                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 1v6M3 5l2 2 2-2" /><path d="M1 8h8" /></svg>
-                                    {parseFloat(dlStatus.progress || '0').toFixed(0)}%
-                                </span>
-                            )}
-                            <span className={`px-2 py-0.5 rounded-lg text-[9px] font-bold border shrink-0 ${CATEGORY_COLORS[item.category] || CATEGORY_COLORS.Other}`}>
-                                {item.category}
-                            </span>
-                            <span className="text-[11px] font-mono text-text-3 shrink-0 w-16 text-right">
-                                {item.isDir ? "—" : formatSize(item.size)}
-                            </span>
-                            <span className="text-[10px] text-text-3 shrink-0 w-24 text-right">{formatDate(item.modified)}</span>
-                            <div className="flex gap-1 shrink-0 transition-all">
-                                {(item.category === "Video" || (item.isDir && findVideoInFolder(item.path))) && dlStatus.status !== 'downloading' && (
-                                    <>
-                                        {(subStatus[item.name] || autoSubDone.has(item.name)) ? (
-                                            <span className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-teal/15 text-teal text-[9px] font-bold border border-teal/15" title="Subtitles available">
-                                                CC ✓
-                                            </span>
-                                        ) : autoSubTriggering === item.name ? (
-                                            <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-accent/15 text-accent text-[9px] font-bold border border-accent/15 animate-pulse">
-                                                <svg className="w-3 h-3 animate-spin" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="6" cy="6" r="5" strokeDasharray="20" strokeDashoffset="5" /></svg>
-                                                CC
-                                            </span>
-                                        ) : (
-                                            <button onClick={(e) => { e.stopPropagation(); triggerAutoSub(item); }}
-                                                className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 px-2 py-1 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 border border-accent/15 text-[9px] font-bold transition-all"
-                                                title="Auto-download subtitles">
-                                                <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 1v6M3 5l2 2 2-2" /><path d="M1 8h8" /></svg>
-                                                CC
-                                            </button>
-                                        )}
-                                        <button onClick={() => {
-                                            const target = item.isDir ? findVideoInFolder(item.path)! : item;
-                                            openSubPanel(target);
-                                        }}
-                                            className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg flex items-center justify-center bg-teal/15 text-teal hover:bg-teal/25 border border-teal/15 text-[10px] font-black transition-all"
-                                            title="Browse subtitles">CC</button>
-                                    </>
+                            <div key={idx} className={`group flex items-center gap-4 px-5 py-3 rounded-xl bg-white/[0.02] border hover:bg-white/[0.04] transition-all ${dlStatus.status === 'completed' ? 'border-teal/15 hover:border-teal/25' : dlStatus.status === 'downloading' ? 'border-accent/15 hover:border-accent/25' : 'border-white/[0.04] hover:border-white/[0.08]'}`}>
+                                <span className="text-xl shrink-0">{CATEGORY_ICONS[item.category] || "📄"}</span>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-white truncate">{item.name}</p>
+                                    <p className="text-[10px] text-text-3 mt-0.5 truncate">{item.path}</p>
+                                </div>
+                                {/* Download status badge */}
+                                {dlStatus.status === 'completed' && (
+                                    <span className="shrink-0 w-7 h-7 rounded-full bg-teal/90 flex items-center justify-center shadow-md shadow-teal/20">
+                                        <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
+                                    </span>
                                 )}
+                                {dlStatus.status === 'downloading' && (
+                                    <span className="shrink-0 px-2.5 py-1 rounded-lg bg-accent/15 text-accent text-[10px] font-black border border-accent/20 flex items-center gap-1.5 animate-pulse">
+                                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 1v6M3 5l2 2 2-2" /><path d="M1 8h8" /></svg>
+                                        {parseFloat(dlStatus.progress || '0').toFixed(0)}%
+                                    </span>
+                                )}
+                                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-bold border shrink-0 ${CATEGORY_COLORS[item.category] || CATEGORY_COLORS.Other}`}>
+                                    {item.category}
+                                </span>
+                                <span className="text-[11px] font-mono text-text-3 shrink-0 w-16 text-right">
+                                    {item.isDir ? "—" : formatSize(item.size)}
+                                </span>
+                                <span className="text-[10px] text-text-3 shrink-0 w-24 text-right">{formatDate(item.modified)}</span>
+                                <div className="flex gap-1 shrink-0 transition-all">
+                                    {(item.category === "Video" || (item.isDir && findVideoInFolder(item.path))) && dlStatus.status !== 'downloading' && (
+                                        <>
+                                            {(subStatus[item.name] || autoSubDone.has(item.name)) ? (
+                                                <span className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-teal/15 text-teal text-[9px] font-bold border border-teal/15" title="Subtitles available">
+                                                    CC ✓
+                                                </span>
+                                            ) : autoSubTriggering === item.name ? (
+                                                <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-accent/15 text-accent text-[9px] font-bold border border-accent/15 animate-pulse">
+                                                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="6" cy="6" r="5" strokeDasharray="20" strokeDashoffset="5" /></svg>
+                                                    CC
+                                                </span>
+                                            ) : (
+                                                <button onClick={(e) => { e.stopPropagation(); triggerAutoSub(item); }}
+                                                    className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 px-2 py-1 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 border border-accent/15 text-[9px] font-bold transition-all"
+                                                    title="Auto-download subtitles">
+                                                    <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 1v6M3 5l2 2 2-2" /><path d="M1 8h8" /></svg>
+                                                    CC
+                                                </button>
+                                            )}
+                                            <button onClick={() => {
+                                                const target = item.isDir ? findVideoInFolder(item.path)! : item;
+                                                openSubPanel(target);
+                                            }}
+                                                className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg flex items-center justify-center bg-teal/15 text-teal hover:bg-teal/25 border border-teal/15 text-[10px] font-black transition-all"
+                                                title="Browse subtitles">CC</button>
+                                        </>
+                                    )}
+                                </div>
                             </div>
-                        </div>
                         );
                     })}
                 </div>

@@ -7,7 +7,44 @@ import axios from "axios";
 const API_BASE = "http://localhost:3001";
 type Tab = "All" | "Downloading" | "Paused" | "Completed";
 
-interface TorrentFile { name: string; path: string; length: number; downloaded: number; progress: number; }
+interface TorrentFile {
+    name: string;
+    path: string;
+    length: number;
+    downloaded: number;
+    progress: number;
+    selected?: boolean;
+    paused?: boolean;
+}
+
+function normalizeTorrentFiles(next: TorrentFile[], prev: TorrentFile[]): TorrentFile[] {
+    if (!Array.isArray(next)) return prev;
+    if (next.length === 0) return next;
+
+    const prevByPath = new Map(prev.map(file => [file.path, file]));
+    let changed = next.length !== prev.length;
+
+    const merged = next.map(file => {
+        const existing = prevByPath.get(file.path);
+        if (!existing) {
+            changed = true;
+            return file;
+        }
+
+        const same =
+            existing.progress === file.progress &&
+            existing.downloaded === file.downloaded &&
+            existing.length === file.length &&
+            existing.selected === file.selected &&
+            existing.paused === file.paused &&
+            existing.name === file.name;
+
+        if (!same) changed = true;
+        return same ? existing : file;
+    });
+
+    return changed ? merged : prev;
+}
 
 const IconDown = () => (
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 1v7M2 6l3 3 3-3" /></svg>
@@ -55,12 +92,13 @@ const IconCheckCircle = () => (
 );
 
 export default function DownloadsPage() {
-    const { torrents, totalDownloadSpeed, totalUploadSpeed, pauseTorrent, resumeTorrent, stopSeeding, deleteWithFiles, diskInfo } = useTorrents();
+    const { torrents, totalDownloadSpeed, totalUploadSpeed, pauseTorrent, resumeTorrent, setTorrentFileSelection, stopSeeding, deleteWithFiles, diskInfo } = useTorrents();
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<Tab>("All");
     const [drawerHash, setDrawerHash] = useState<string | null>(null);
     const [drawerFiles, setDrawerFiles] = useState<TorrentFile[]>([]);
     const [drawerLoading, setDrawerLoading] = useState(false);
+    const [drawerActionByPath, setDrawerActionByPath] = useState<Record<string, boolean>>({});
     const drawerFetchingRef = useRef(false);
 
     // Speed sparkline history (last 60 ticks ~1 s each)
@@ -121,7 +159,8 @@ export default function DownloadsPage() {
         if (!silent) setDrawerLoading(true);
         try {
             const r = await axios.get(`${API_BASE}/api/torrents/${hash}/files`);
-            setDrawerFiles(r.data || []);
+            const incoming = (r.data || []) as TorrentFile[];
+            setDrawerFiles(prev => normalizeTorrentFiles(incoming, prev));
         } catch { setDrawerFiles([]); }
         if (!silent) setDrawerLoading(false);
         drawerFetchingRef.current = false;
@@ -136,9 +175,39 @@ export default function DownloadsPage() {
         return () => clearInterval(t);
     }, [drawerHash, fetchFiles]);
 
-    const openDrawer = (hash: string) => { setDrawerHash(hash); setDrawerFiles([]); };
-    const closeDrawer = () => { setDrawerHash(null); setDrawerFiles([]); };
+    const openDrawer = (hash: string) => { setDrawerHash(hash); setDrawerFiles([]); setDrawerActionByPath({}); };
+    const closeDrawer = () => { setDrawerHash(null); setDrawerFiles([]); setDrawerActionByPath({}); };
     const drawerTorrent = torrents.find(t => t.infoHash === drawerHash);
+    const canControlFiles = drawerTorrent?.status === "Downloading";
+
+    const toggleDrawerFile = useCallback(async (file: TorrentFile) => {
+        if (!drawerHash || !canControlFiles || drawerActionByPath[file.path]) return;
+
+        const shouldPause = file.paused !== true;
+        const action: 'pause' | 'resume' = shouldPause ? 'pause' : 'resume';
+        const previous = drawerFiles;
+
+        setDrawerActionByPath(prev => ({ ...prev, [file.path]: true }));
+        setDrawerFiles(curr => curr.map(item =>
+            item.path === file.path
+                ? { ...item, paused: shouldPause, selected: !shouldPause }
+                : item
+        ));
+
+        try {
+            const files = await setTorrentFileSelection(drawerHash, file.path, action);
+            if (Array.isArray(files) && files.length > 0) setDrawerFiles(files);
+            else fetchFiles(drawerHash, true);
+        } catch {
+            setDrawerFiles(previous);
+        } finally {
+            setDrawerActionByPath(prev => {
+                const next = { ...prev };
+                delete next[file.path];
+                return next;
+            });
+        }
+    }, [canControlFiles, drawerActionByPath, drawerFiles, drawerHash, fetchFiles, setTorrentFileSelection]);
 
     const counts = useMemo(() => ({
         All: torrents.length,
@@ -309,9 +378,9 @@ export default function DownloadsPage() {
 
             {/* File List Drawer */}
             {drawerHash && (
-                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/70 animate-modal-overlay"
                     onClick={e => { if (e.target === e.currentTarget) closeDrawer(); }}>
-                    <div className="w-full max-w-2xl rounded-2xl bg-[#0d0d20] border border-white/[0.08] shadow-2xl shadow-black/80 flex flex-col max-h-[80vh]">
+                    <div className="w-full max-w-2xl rounded-2xl bg-[#0d0d20] border border-white/[0.08] shadow-2xl shadow-black/80 flex flex-col max-h-[80vh] animate-modal-panel transform-gpu">
                         {/* Drawer header */}
                         <div className="flex items-start justify-between p-5 pb-4 border-b border-white/[0.06]">
                             <div className="min-w-0">
@@ -344,11 +413,14 @@ export default function DownloadsPage() {
                                     <div className="h-full bg-gradient-to-r from-accent to-teal rounded-full transition-all duration-700"
                                         style={{ width: `${Math.min(parseFloat(drawerTorrent.progress), 100)}%` }} />
                                 </div>
+                                {!canControlFiles && (
+                                    <p className="mt-2 text-[10px] text-text-3/70">File controls are available only while this torrent is downloading.</p>
+                                )}
                             </div>
                         )}
 
                         {/* File list */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+                        <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-1.5 [contain:content] [scrollbar-gutter:stable]">
                             {drawerLoading && drawerFiles.length === 0 ? (
                                 <div className="py-10 text-center text-text-3 text-sm animate-pulse">Loading file list...</div>
                             ) : drawerFiles.length === 0 ? (
@@ -357,20 +429,34 @@ export default function DownloadsPage() {
                                     <p className="text-text-3/25 text-[11px]">The torrent may still be fetching metadata — try again in a moment</p>
                                 </div>
                             ) : (
-                                drawerFiles.map((f, i) => {
+                                drawerFiles.map((f) => {
                                     const pct = Math.min(f.progress * 100, 100);
                                     const isDone = pct >= 99.9;
+                                    const isPaused = f.paused === true || f.selected === false;
+                                    const isBusy = !!drawerActionByPath[f.path];
+                                    const canToggle = canControlFiles && !isBusy && !isDone;
                                     return (
-                                        <div key={i} className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                                        <div key={f.path} className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04] transition-colors duration-200">
                                             <div className="flex items-center justify-between gap-3 mb-2">
                                                 <span className="text-xs text-white font-medium truncate flex-1">{f.name}</span>
-                                                <div className="flex items-center gap-3 shrink-0 text-[10px] font-mono text-text-3">
-                                                    <span>{(pct).toFixed(1)}%</span>
-                                                    <span>{formatSize(f.length)}</span>
+                                                <div className="grid grid-cols-[28px_56px_72px] items-center gap-2 shrink-0 text-[10px] font-mono text-text-3">
+                                                    <button
+                                                        onClick={() => toggleDrawerFile(f)}
+                                                        disabled={!canToggle}
+                                                        title={isPaused ? "Resume this file" : "Pause this file"}
+                                                        className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-all ${isPaused
+                                                            ? "bg-teal/10 text-teal border-teal/20 hover:bg-teal/20"
+                                                            : "bg-warning/10 text-warning border-warning/20 hover:bg-warning/20"
+                                                            } ${!canToggle ? "opacity-40 cursor-not-allowed hover:bg-transparent" : ""}`}
+                                                    >
+                                                        {isPaused ? <IconPlay /> : <IconPause />}
+                                                    </button>
+                                                    <span className="text-right">{(pct).toFixed(1)}%</span>
+                                                    <span className="text-right">{formatSize(f.length)}</span>
                                                 </div>
                                             </div>
                                             <div className="h-1 bg-white/[0.05] rounded-full overflow-hidden">
-                                                <div className={`h-full rounded-full ${isDone ? "bg-teal" : "bg-gradient-to-r from-accent to-teal"}`}
+                                                <div className={`h-full rounded-full ${isPaused ? "bg-warning" : isDone ? "bg-teal" : "bg-gradient-to-r from-accent to-teal"}`}
                                                     style={{ width: `${pct}%` }} />
                                             </div>
                                         </div>

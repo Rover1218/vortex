@@ -341,7 +341,6 @@ export default function SearchPage() {
             });
         }
         return { flatItems, groups };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sorted, groupMode]);
 
     const toggleGroup = (key: string) => setExpandedGroups(prev => {
@@ -626,6 +625,7 @@ export default function SearchPage() {
                                             {posterUrl === 'loading' ? (
                                                 <div className="w-full h-full bg-white/[0.05] animate-pulse" />
                                             ) : typeof posterUrl === 'string' ? (
+                                                // eslint-disable-next-line @next/next/no-img-element
                                                 <img src={posterUrl} alt={group.showName} className="w-full h-full object-cover" onError={() => setPosters(prev => ({ ...prev, [posterKey]: null }))} />
                                             ) : (
                                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
@@ -665,40 +665,42 @@ export default function SearchPage() {
                                             {group.episodes.map(res => {
                                                 const ep = parseEpisode(res.title);
                                                 return (
-                                                    <div key={res.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-white/[0.03] transition-all">
-                                                        {ep && (
-                                                            <span className="shrink-0 w-9 text-center text-[10px] font-black font-mono text-accent/70 bg-accent/10 rounded-lg py-1">
-                                                                E{String(ep.episode).padStart(2, '0')}
-                                                            </span>
-                                                        )}
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="text-sm text-white/80 truncate">{res.title}</p>
-                                                            <div className="flex items-center gap-3 text-[10px] mt-0.5">
-                                                                <span className="text-text-3 font-mono">{res.size}</span>
-                                                                <span className="text-teal font-bold">{res.seeders}S</span>
-                                                                <span className="text-text-3/40 uppercase tracking-widest">{res.provider}</span>
+                                                    <div key={res.id} className="px-5 py-3.5 hover:bg-white/[0.03] transition-all">
+                                                        <div className="flex items-center gap-4">
+                                                            {ep && (
+                                                                <span className="shrink-0 w-9 text-center text-[10px] font-black font-mono text-accent/70 bg-accent/10 rounded-lg py-1">
+                                                                    E{String(ep.episode).padStart(2, '0')}
+                                                                </span>
+                                                            )}
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="text-sm text-white/80 truncate">{res.title}</p>
+                                                                <div className="flex items-center gap-3 text-[10px] mt-0.5">
+                                                                    <span className="text-text-3 font-mono">{res.size}</span>
+                                                                    <span className="text-teal font-bold">{res.seeders}S</span>
+                                                                    <span className="text-text-3/40 uppercase tracking-widest">{res.provider}</span>
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                        <div className="flex items-center gap-1.5 shrink-0">
-                                                            <button onClick={() => toggleFilesPreview(res.id)}
-                                                                title="Preview files"
-                                                                className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${filesOpenId === res.id
-                                                                    ? 'bg-accent/20 border-accent/40 text-accent'
-                                                                    : 'bg-white/[0.04] border-white/[0.08] text-text-3 hover:text-accent hover:border-accent/30 hover:bg-accent/10'}`}>
-                                                                📂
-                                                            </button>
-                                                            <button onClick={() => handleAdd(res.id)} disabled={res.inLibrary || addingId === res.id || addedIds.has(res.id)}
-                                                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
-                                                                    errorId === res.id ? 'bg-red-500/15 text-red-400' :
-                                                                        addingId === res.id ? 'bg-accent/10 text-accent/60' :
-                                                                            'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
-                                                                    }`}>
-                                                                {res.inLibrary ? '✓' : addedIds.has(res.id) ? '✓' : errorId === res.id ? '✗' : addingId === res.id ? '...' : '+'}
-                                                            </button>
+                                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                                <button onClick={() => toggleFilesPreview(res.id)}
+                                                                    title="Preview files"
+                                                                    className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${filesOpenId === res.id
+                                                                        ? 'bg-accent/20 border-accent/40 text-accent'
+                                                                        : 'bg-white/[0.04] border-white/[0.08] text-text-3 hover:text-accent hover:border-accent/30 hover:bg-accent/10'}`}>
+                                                                    📂
+                                                                </button>
+                                                                <button onClick={() => handleAdd(res.id)} disabled={res.inLibrary || addingId === res.id || addedIds.has(res.id)}
+                                                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
+                                                                        errorId === res.id ? 'bg-red-500/15 text-red-400' :
+                                                                            addingId === res.id ? 'bg-accent/10 text-accent/60' :
+                                                                                'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
+                                                                        }`}>
+                                                                    {res.inLibrary ? '✓' : addedIds.has(res.id) ? '✓' : errorId === res.id ? '✗' : addingId === res.id ? '...' : '+'}
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                         {/* File preview panel for grouped episode */}
                                                         {filesOpenId === res.id && (
-                                                            <div className="col-span-full mt-2 border border-white/[0.06] bg-black/20 rounded-xl p-4 space-y-2">
+                                                            <div className="mt-3 border border-white/[0.06] bg-black/20 rounded-xl p-4 space-y-2">
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-xs text-accent font-bold uppercase tracking-wider">📂 Files</span>
                                                                     {filesData && <span className="text-[10px] text-text-3">({filesData.files.length} file{filesData.files.length !== 1 ? 's' : ''})</span>}
@@ -716,9 +718,9 @@ export default function SearchPage() {
                                                                             <div key={fi} className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-white/[0.02] border border-white/[0.04] text-xs">
                                                                                 <span className="shrink-0 text-text-3">
                                                                                     {/\.(mkv|mp4|avi|mov|wmv|m4v|ts|flv)$/i.test(f.name) ? '🎬' :
-                                                                                     /\.(srt|sub|ass|ssa|vtt)$/i.test(f.name) ? '📝' :
-                                                                                     /\.(nfo|txt)$/i.test(f.name) ? '📄' :
-                                                                                     /\.(jpg|jpeg|png|gif)$/i.test(f.name) ? '🖼️' : '📦'}
+                                                                                        /\.(srt|sub|ass|ssa|vtt)$/i.test(f.name) ? '📝' :
+                                                                                            /\.(nfo|txt)$/i.test(f.name) ? '📄' :
+                                                                                                /\.(jpg|jpeg|png|gif)$/i.test(f.name) ? '🖼️' : '📦'}
                                                                                 </span>
                                                                                 <span className="flex-1 min-w-0 text-white truncate">{f.name}</span>
                                                                                 <span className="shrink-0 text-text-3 font-mono">{formatFileSize(f.size)}</span>
@@ -750,6 +752,7 @@ export default function SearchPage() {
                                             {flatPoster === 'loading' ? (
                                                 <div className="w-full h-full bg-white/[0.05] animate-pulse" />
                                             ) : typeof flatPoster === 'string' ? (
+                                                // eslint-disable-next-line @next/next/no-img-element
                                                 <img src={flatPoster} alt={res.title} className="w-full h-full object-cover" onError={() => setPosters(prev => ({ ...prev, [flatKey]: null }))} />
                                             ) : (
                                                 <svg className="w-4 h-4 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" /></svg>
@@ -825,9 +828,9 @@ export default function SearchPage() {
                                                         <div key={fi} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs">
                                                             <span className="shrink-0 text-text-3">
                                                                 {/\.(mkv|mp4|avi|mov|wmv|m4v|ts|flv)$/i.test(f.name) ? '🎬' :
-                                                                 /\.(srt|sub|ass|ssa|vtt)$/i.test(f.name) ? '📝' :
-                                                                 /\.(nfo|txt)$/i.test(f.name) ? '📄' :
-                                                                 /\.(jpg|jpeg|png|gif)$/i.test(f.name) ? '🖼️' : '📦'}
+                                                                    /\.(srt|sub|ass|ssa|vtt)$/i.test(f.name) ? '📝' :
+                                                                        /\.(nfo|txt)$/i.test(f.name) ? '📄' :
+                                                                            /\.(jpg|jpeg|png|gif)$/i.test(f.name) ? '🖼️' : '📦'}
                                                             </span>
                                                             <span className="flex-1 min-w-0 text-white truncate">{f.name}</span>
                                                             <span className="shrink-0 text-text-3 font-mono">{formatFileSize(f.size)}</span>

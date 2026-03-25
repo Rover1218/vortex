@@ -47,6 +47,7 @@ interface TorrentContextType {
     removeTorrent: (infoHash: string) => Promise<void>;
     pauseTorrent: (infoHash: string) => Promise<void>;
     resumeTorrent: (infoHash: string) => Promise<void>;
+    setTorrentFileSelection: (infoHash: string, filePath: string, action: 'pause' | 'resume') => Promise<any[]>;
     stopSeeding: (infoHash: string) => Promise<void>;
     deleteWithFiles: (infoHash: string) => Promise<void>;
     updateSettings: (newSettings: Partial<Settings>) => Promise<void>;
@@ -100,8 +101,15 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     useEffect(() => {
-        fetchDiskInfo();
-        const id = setInterval(fetchDiskInfo, 30000);
+        const loadDiskInfo = async () => {
+            try {
+                const res = await axios.get(`${API_BASE}/api/disk`);
+                setDiskInfo(res.data);
+            } catch { /* silent */ }
+        };
+
+        loadDiskInfo();
+        const id = setInterval(loadDiskInfo, 30000);
         return () => clearInterval(id);
     }, []);
 
@@ -181,6 +189,16 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
         catch (err) { console.error('Failed to resume torrent:', err); }
     };
 
+    const setTorrentFileSelection = async (infoHash: string, filePath: string, action: 'pause' | 'resume') => {
+        try {
+            const res = await axios.post(`${API_BASE}/api/torrents/${infoHash}/files/selection`, { path: filePath, action });
+            return res.data?.files || [];
+        } catch (err) {
+            console.error('Failed to update file selection:', err);
+            throw err;
+        }
+    };
+
     const stopSeeding = async (infoHash: string) => {
         try { await axios.post(`${API_BASE}/api/torrents/${infoHash}/stop-seeding`); }
         catch (err) { console.error('Failed to stop seeding:', err); }
@@ -229,7 +247,7 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
             searchResults, searchLogs, searchQuery, searchCategory, isSearching,
             searchPosters, setSearchPosters,
             setSearchQuery, setSearchCategory, doSearch, cancelSearch, clearSearch, getSuggestions,
-            addMagnet, removeTorrent, pauseTorrent, resumeTorrent, stopSeeding, deleteWithFiles,
+            addMagnet, removeTorrent, pauseTorrent, resumeTorrent, setTorrentFileSelection, stopSeeding, deleteWithFiles,
             updateSettings, fetchDiskInfo, fetchLibrary, browseFolders
         }}>
             {children}

@@ -45,6 +45,26 @@ const pausedTorrents = new Map();
 const magnetsByHash = new Map(); // tracks original magnet URIs by infoHash
 const addedAtMap = new Map();   // tracks when each torrent was first added
 const namesMap = new Map();     // persistent name store — survives state transitions
+const pausedFilesByHash = new Map(); // tracks per-file paused state while torrent is active
+
+function getPausedFileSet(hash) {
+    const existing = pausedFilesByHash.get(hash);
+    if (existing) return existing;
+    const created = new Set();
+    pausedFilesByHash.set(hash, created);
+    return created;
+}
+
+function applyPausedFileSelections(torrent) {
+    if (!torrent?.infoHash || !torrent.files?.length) return;
+    const pausedPaths = pausedFilesByHash.get(torrent.infoHash);
+    if (!pausedPaths || pausedPaths.size === 0) return;
+
+    for (const file of torrent.files) {
+        if (!pausedPaths.has(file.path)) continue;
+        try { file.deselect(); } catch { /* ignore per-file errors */ }
+    }
+}
 
 // Extract display name from a magnet URI's dn= parameter
 function getNameFromMagnet(magnet) {
@@ -986,7 +1006,7 @@ app.get('/api/torrent-files/:id', async (req, res) => {
                             const chunks = [];
                             resp.on('data', c => chunks.push(c));
                             resp.on('end', () => resolve(Buffer.concat(chunks)));
-                        }).on('error', reject).on('timeout', function() { this.destroy(); reject(new Error('timeout')); });
+                        }).on('error', reject).on('timeout', function () { this.destroy(); reject(new Error('timeout')); });
                     };
                     fetchWithRedirect(url);
                 });
@@ -1017,7 +1037,7 @@ app.get('/api/torrent-files/:id', async (req, res) => {
                 const tempTorrent = client.add(result._magnet, { path: path.join(os.tmpdir(), 'vortex-preview'), destroyStoreOnDestroy: true }, (torrent) => {
                     clearTimeout(timer);
                     const files = (torrent.files || []).map(f => ({ name: f.name, size: f.length, path: f.path }));
-                    try { client.remove(torrent.infoHash, { destroyStore: true }); } catch {}
+                    try { client.remove(torrent.infoHash, { destroyStore: true }); } catch { }
                     resolve({ name: torrent.name, files });
                 });
                 if (tempTorrent) {
@@ -1089,6 +1109,7 @@ app.post('/api/torrents', (req, res) => {
         torrent.on('metadata', () => {
             console.log('   ✓ Metadata:', torrent.name);
             if (torrent.name) namesMap.set(torrent.infoHash, torrent.name);
+            applyPausedFileSelections(torrent);
             // Update stored magnet with full URI (includes trackers from DHT)
             if (torrent.infoHash) {
                 magnetsByHash.set(torrent.infoHash, torrent.magnetURI || magnet);
@@ -1156,6 +1177,7 @@ app.delete('/api/torrents/:infoHash', (req, res) => {
     completedTorrents.delete(hash);
     magnetsByHash.delete(hash);
     addedAtMap.delete(hash);
+    pausedFilesByHash.delete(hash);
     const torrent = client.torrents.find(t => t.infoHash === hash);
     if (torrent) {
         client.remove(hash, { destroyStore: false }, () => { saveTorrentList(); res.json({ success: true }); });
@@ -1176,6 +1198,7 @@ app.delete('/api/torrents/:infoHash/delete-files', (req, res) => {
     completedTorrents.delete(hash);
     magnetsByHash.delete(hash);
     addedAtMap.delete(hash);
+    pausedFilesByHash.delete(hash);
 
     const doDeleteFiles = () => {
         if (torrentName) {
@@ -1236,6 +1259,7 @@ app.post('/api/torrents/:infoHash/resume', (req, res) => {
             torrent.on('metadata', () => {
                 console.log('▶ Resumed:', torrent.name);
                 if (torrent.infoHash) magnetsByHash.set(torrent.infoHash, torrent.magnetURI || magnet);
+                applyPausedFileSelections(torrent);
                 saveTorrentList();
             });
             saveTorrentList();
@@ -1279,19 +1303,75 @@ app.get('/api/torrents/:infoHash/files', (req, res) => {
     const hash = (req.params.infoHash || '').toLowerCase();
     const torrent = client.torrents.find(t => (t.infoHash || '').toLowerCase() === hash);
     if (!torrent) return res.json([]);
+    const pausedFiles = pausedFilesByHash.get(torrent.infoHash) || new Set();
     const files = (torrent.files || []).map(f => {
         const len = f.length || 0;
         const prog = Math.min(f.progress || 0, 1);
         const downloaded = f.downloaded != null ? f.downloaded : Math.round(prog * len);
+        const paused = pausedFiles.has(f.path);
         return {
             name: f.name,
             path: f.path,
             length: len,
             downloaded,
             progress: prog,
+            selected: !paused,
+            paused,
         };
     });
     res.json(files);
+});
+
+// ─── Pause/Resume Single Torrent File ───
+app.post('/api/torrents/:infoHash/files/selection', (req, res) => {
+    const hash = (req.params.infoHash || '').toLowerCase();
+    const { path: filePath, action } = req.body || {};
+    if (!filePath || typeof filePath !== 'string') {
+        return res.status(400).json({ error: 'File path is required' });
+    }
+    if (action !== 'pause' && action !== 'resume') {
+        return res.status(400).json({ error: 'Action must be pause or resume' });
+    }
+
+    const torrent = client.torrents.find(t => (t.infoHash || '').toLowerCase() === hash);
+    if (!torrent) return res.status(404).json({ error: 'Torrent not found or not active' });
+    if (torrent.progress === 1) return res.status(400).json({ error: 'Completed torrents cannot be changed' });
+
+    const target = (torrent.files || []).find(f => f.path === filePath);
+    if (!target) return res.status(404).json({ error: 'File not found in torrent' });
+
+    const pausedFiles = getPausedFileSet(torrent.infoHash);
+    const shouldPause = action === 'pause';
+
+    try {
+        if (shouldPause) {
+            target.deselect();
+            pausedFiles.add(target.path);
+        } else {
+            target.select();
+            pausedFiles.delete(target.path);
+            if (pausedFiles.size === 0) pausedFilesByHash.delete(torrent.infoHash);
+        }
+
+        const files = (torrent.files || []).map(f => {
+            const len = f.length || 0;
+            const prog = Math.min(f.progress || 0, 1);
+            const downloaded = f.downloaded != null ? f.downloaded : Math.round(prog * len);
+            const paused = (pausedFilesByHash.get(torrent.infoHash) || new Set()).has(f.path);
+            return {
+                name: f.name,
+                path: f.path,
+                length: len,
+                downloaded,
+                progress: prog,
+                selected: !paused,
+                paused,
+            };
+        });
+        res.json({ success: true, files });
+    } catch (err) {
+        res.status(500).json({ error: err.message || 'Failed to update file selection' });
+    }
 });
 
 // ─── Poster search (TVmaze primary + iTunes fallback, no API keys needed) ───
@@ -1330,12 +1410,12 @@ function httpPost(urlStr, body, timeout = 9000) {
 
 function cleanTitle(q) {
     const QUALITY_TAGS = ['1080p', '720p', '4k', '2160p', 'bluray', 'bdrip', 'webrip', 'webdl', 'hdtv', 'x264', 'x265', 'hevc'];
-    
+
     // Extract bracket content (e.g., "[Taare Zameen Par]") as canonical alt title
     const brackets = [...q.matchAll(/\[([^\]]{2,})\]/g)].map(m => m[1].trim());
     // Filter out quality tags or short strings from being the "altTitle"
     const altTitle = brackets.find(t => t.length > 2 && !QUALITY_TAGS.some(tag => t.toLowerCase().includes(tag))) || '';
-    
+
     let s = q.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ').replace(/[._]/g, ' ');
     const yearMatch = s.match(/\b((?:19|20)\d{2})\b/);
     const year = yearMatch ? yearMatch[1] : '';
@@ -1516,7 +1596,7 @@ app.get('/api/poster', async (req, res) => {
         console.log(`   ✓ TMDb match: ${result.title} (${result.year})`);
         posterCache.set(cacheKey, result);
         return res.json(result);
-    } catch { 
+    } catch {
         console.log(`   ✗ TMDb failed, trying fallbacks...`);
     }
 
