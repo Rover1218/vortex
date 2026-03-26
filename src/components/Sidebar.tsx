@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useTorrents } from "@/context/TorrentContext";
 import { useAuth } from "@/context/AuthContext";
@@ -135,7 +136,7 @@ export default function Sidebar() {
         <div className="mx-3 mb-4 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.04]">
           <div className="flex items-center gap-3 mb-3">
             {user.photoURL ? (
-              <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full ring-1 ring-white/10" referrerPolicy="no-referrer" />
+              <Image src={user.photoURL} alt="" width={32} height={32} className="rounded-full ring-1 ring-white/10" referrerPolicy="no-referrer" unoptimized />
             ) : (
               <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-bold ring-1 ring-white/10">
                 {user.displayName?.[0] || user.email?.[0] || "?"}

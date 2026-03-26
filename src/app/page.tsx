@@ -1,1 +1,3 @@
-export { default } from "./(public)/page";
+import LandingPage from "./(public)/page";
+
+export default LandingPage;

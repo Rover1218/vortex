@@ -35,7 +35,7 @@ export default function LandingPage() {
       </div>
 
       {/* Nav */}
-      <nav className="relative z-10 flex items-center justify-between px-6 md:px-12 py-5 max-w-7xl mx-auto" style={{ animation: "fadeIn 0.5s ease" }}>
+      <nav className="relative z-10 flex items-center justify-between px-6 md:px-12 py-5 max-w-7xl mx-auto animate-fade-in">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-teal flex items-center justify-center text-white text-sm font-black shadow-lg shadow-accent/25 ring-1 ring-white/10">V</div>
           <span className="text-2xl font-black tracking-tight text-white">Vortex</span>
@@ -51,7 +51,7 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero */}
-      <section className="relative z-10 flex flex-col items-center text-center px-6 pt-20 pb-12 max-w-5xl mx-auto" style={{ animation: "fadeUp 0.7s ease" }}>
+      <section className="relative z-10 flex flex-col items-center text-center px-6 pt-20 pb-12 max-w-5xl mx-auto animate-fade-up">
         <div className="inline-flex items-center gap-2.5 px-5 py-2 mb-10 rounded-full bg-accent/[0.08] border border-accent/20">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal opacity-75" />
@@ -87,7 +87,7 @@ export default function LandingPage() {
         <p className="text-xs text-text-3 mb-16">No credit card required · Free forever · 2-click setup</p>
 
         {/* Dashboard Preview */}
-        <div className="w-full max-w-4xl relative" style={{ animation: "fadeUp 0.9s ease 0.3s both" }}>
+        <div className="w-full max-w-4xl relative animate-fade-up [animation-delay:300ms] [animation-fill-mode:both]">
           <div className="absolute -inset-1 bg-gradient-to-r from-accent/15 via-teal/10 to-accent/15 rounded-3xl opacity-50" />
           <div className="relative rounded-2xl border border-white/[0.1] bg-surface overflow-hidden shadow-2xl shadow-black/60">
             <div className="flex items-center gap-2 px-5 py-3.5 border-b border-white/[0.06] bg-black/20">
@@ -268,16 +268,6 @@ export default function LandingPage() {
         </div>
       </footer>
 
-      <style jsx>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(-10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(30px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
     </div>
   );
 }

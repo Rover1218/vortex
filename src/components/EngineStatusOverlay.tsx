@@ -45,8 +45,9 @@ export default function EngineStatusOverlay() {
                     </div>
 
                     <a
-                        href="/downloads/vortex.exe"
-                        download
+                        href="https://github.com/Rover1218/vortex/releases/tag/Vortex"
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-gradient-to-r from-accent to-teal text-white shadow-xl shadow-accent/20 hover:shadow-accent/40 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
                     >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
