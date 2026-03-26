@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
+import { useAuth } from './AuthContext';
 
 // ─── Types ───
 interface TorrentState {
@@ -58,10 +59,12 @@ interface TorrentContextType {
     fetchDiskInfo: () => Promise<void>;
     fetchLibrary: () => Promise<void>;
     browseFolders: (folderPath: string) => Promise<BrowseResult>;
+    isEngineConnected: boolean;
 }
 
 const TorrentContext = createContext<TorrentContextType | undefined>(undefined);
-const API_BASE = 'http://localhost:3001';
+// Default to localhost for development, but allow override via Vercel Environment Variables
+const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3001';
 
 export function TorrentProvider({ children }: { children: React.ReactNode }) {
     const [torrents, setTorrents] = useState<TorrentState[]>([]);
@@ -82,33 +85,56 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
     const [searchPosters, setSearchPosters] = useState<Record<string, string | null | 'loading'>>({});
     const searchAbortRef = useRef<AbortController | null>(null);
 
-    useEffect(() => {
-        const socket = io(API_BASE);
-        socket.on('torrent-status', (data: any) => {
-            setTorrents(data.torrents || []);
-            setTotalDownloadSpeed(data.totalDownloadSpeed || 0);
-            setTotalUploadSpeed(data.totalUploadSpeed || 0);
-            setLifetimeDownloaded(data.lifetimeTotals?.downloaded || 0);
-            setLifetimeSeeded(data.lifetimeTotals?.seeded || 0);
-            if (data.settings) setSettings(data.settings);
-        });
+    const [isEngineConnected, setIsEngineConnected] = useState(true);
 
-        // Instant settings refresh when server applies changes
-        socket.on('settings-updated', (data: any) => {
-            setSettings(data);
-        });
-
-        socket.on('search-progress', (data: any) => {
-            if (data.providers) setSearchLogs(data.providers);
-            // Stream results as each provider finishes; skip the final 'done' event
-            // since the HTTP response will replace with the deduped+sorted list
-            if (data.partialResults && !data.done) setSearchResults(data.partialResults);
-        });
-
-        return () => { socket.disconnect(); };
-    }, []);
+    const { user } = useAuth();
 
     useEffect(() => {
+        if (!user) return; // Wait until authenticated
+
+        // Axios Interceptor
+        const reqInterceptor = axios.interceptors.request.use(async (config) => {
+            try {
+                const token = await user.getIdToken();
+                config.headers.Authorization = `Bearer ${token}`;
+            } catch (err) { console.error('Token err:', err); }
+            return config;
+        });
+
+        // Socket.IO
+        let socket: any = null;
+        user.getIdToken().then(token => {
+            socket = io(API_BASE, { auth: { token } });
+            
+            socket.on('connect', () => setIsEngineConnected(true));
+            socket.on('disconnect', () => setIsEngineConnected(false));
+            socket.on('connect_error', () => setIsEngineConnected(false));
+
+            socket.on('torrent-status', (data: any) => {
+                setTorrents(data.torrents || []);
+                setTotalDownloadSpeed(data.totalDownloadSpeed || 0);
+                setTotalUploadSpeed(data.totalUploadSpeed || 0);
+                setLifetimeDownloaded(data.lifetimeTotals?.downloaded || 0);
+                setLifetimeSeeded(data.lifetimeTotals?.seeded || 0);
+                if (data.settings) setSettings(data.settings);
+            });
+
+            socket.on('settings-updated', (data: any) => setSettings(data));
+
+            socket.on('search-progress', (data: any) => {
+                if (data.providers) setSearchLogs(data.providers);
+                if (data.partialResults && !data.done) setSearchResults(data.partialResults);
+            });
+        });
+
+        return () => {
+            axios.interceptors.request.eject(reqInterceptor);
+            if (socket) socket.disconnect();
+        };
+    }, [user]);
+
+    useEffect(() => {
+        if (!user) return;
         const loadDiskInfo = async () => {
             try {
                 const res = await axios.get(`${API_BASE}/api/disk`);
@@ -119,7 +145,7 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
         loadDiskInfo();
         const id = setInterval(loadDiskInfo, 30000);
         return () => clearInterval(id);
-    }, []);
+    }, [user]);
 
     const doSearch = useCallback(async (query?: string, category?: string) => {
         const q = query || searchQuery;
@@ -260,9 +286,12 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
             settings, diskInfo, library,
             searchResults, searchLogs, searchQuery, searchCategory, isSearching,
             searchPosters, setSearchPosters,
-            setSearchQuery, setSearchCategory, doSearch, cancelSearch, clearSearch, getSuggestions,
-            addMagnet, removeTorrent, pauseTorrent, resumeTorrent, startSeeding, setTorrentFileSelection, stopSeeding, deleteWithFiles,
-            updateSettings, fetchDiskInfo, fetchLibrary, browseFolders
+            setSearchQuery, setSearchCategory, doSearch, cancelSearch,        clearSearch,
+        getSuggestions,
+        addMagnet, removeTorrent, pauseTorrent, resumeTorrent,
+        startSeeding, setTorrentFileSelection, stopSeeding, deleteWithFiles,
+        updateSettings, fetchDiskInfo, fetchLibrary, browseFolders,
+        isEngineConnected
         }}>
             {children}
         </TorrentContext.Provider>

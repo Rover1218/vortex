@@ -35,12 +35,15 @@ interface SubResult {
     exact?: boolean;
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3001';
+
 export default function SearchPage() {
     const {
         searchResults, searchLogs, searchQuery, setSearchQuery,
         searchCategory, setSearchCategory,
         isSearching, doSearch, cancelSearch, clearSearch, getSuggestions,
         searchPosters: posters, setSearchPosters: setPosters,
+        addMagnet,
     } = useTorrents();
 
     const [sortBy, setSortBy] = useState('Relevance');
@@ -115,7 +118,7 @@ export default function SearchPage() {
         setSubResults([]);
         try {
             const params = new URLSearchParams({ name: title, lang });
-            const r = await fetch(`http://localhost:3001/api/subtitles?${params}`);
+            const r = await fetch(`${API_BASE}/api/subtitles?${params}`);
             const data = await r.json();
             if (data.error === 'NO_API_KEY') {
                 setSubError('⚠️ No API key configured. Go to Settings → Subtitles to add your OpenSubtitles.com key.');
@@ -145,8 +148,8 @@ export default function SearchPage() {
         if (!result.fileId) { setSubError('No file ID available for this subtitle.'); return; }
         setDownloadingId(result.id);
         try {
-            const destFolder = (await fetch('http://localhost:3001/api/settings').then(r => r.json())).downloadPath || '.';
-            const r = await fetch('http://localhost:3001/api/subtitles/download', {
+            const destFolder = (await fetch(`${API_BASE}/api/settings`).then(r => r.json())).downloadPath || '.';
+            const r = await fetch(`${API_BASE}/api/subtitles/download`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ fileId: result.fileId, filename: result.name, destFolder }),
@@ -169,7 +172,7 @@ export default function SearchPage() {
         setFilesData(null);
         setFilesError('');
         try {
-            const r = await fetch(`http://localhost:3001/api/torrent-files/${resId}`);
+            const r = await fetch(`${API_BASE}/api/torrent-files/${resId}`);
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Failed to fetch files');
             setFilesData(data);
@@ -217,16 +220,12 @@ export default function SearchPage() {
         setAddingId(id);
         setErrorId(null);
         try {
-            const magnetRes = await fetch(`http://localhost:3001/api/magnet/${id}`);
+            const magnetRes = await fetch(`${API_BASE}/api/magnet/${id}`);
             if (!magnetRes.ok) throw new Error('Magnet fetch failed');
             const { magnet } = await magnetRes.json();
             if (!magnet) throw new Error('No magnet returned');
 
-            const addRes = await fetch('http://localhost:3001/api/torrents', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ magnet })
-            });
-            if (!addRes.ok) throw new Error('Add failed');
-
+            await addMagnet(magnet);
             setAddedIds(prev => new Set(prev).add(id));
         } catch (err) {
             console.error('Add error:', err);
@@ -395,7 +394,7 @@ export default function SearchPage() {
                 const batch = toFetch.slice(i, i + batchSize);
                 await Promise.all(batch.map(async ({ key, query }) => {
                     try {
-                        const r = await fetch(`http://localhost:3001/api/poster?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+                        const r = await fetch(`${API_BASE}/api/poster?q=${encodeURIComponent(query)}`, { signal: controller.signal });
                         const data = await r.json();
                         setPosters(prev => ({ ...prev, [key]: data?.poster ?? null }));
                     } catch {

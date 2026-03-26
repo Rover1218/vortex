@@ -1,11 +1,13 @@
 {
   "name": "vortex",
   "version": "0.1.0",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "server": "node server.mjs",
     "dev:full": "concurrently \"npm run dev\" \"npm run server\"",
+    "build:engine:exe": "node build-engine.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -29,7 +31,7 @@
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.5.0",
     "torrent-search-api": "^2.1.4",
-    "webtorrent": "^2.8.5"
+    "webtorrent": "^1.9.7"
   },
   "devDependencies": {
     "@types/body-parser": "^1.19.6",
@@ -38,10 +40,16 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@yao-pkg/pkg": "^6.14.1",
     "autoprefixer": "^10.4.19",
+    "esbuild": "^0.27.4",
     "eslint": "^9",
     "eslint-config-next": "15.1.0",
+    "pkg": "^5.8.1",
+    "png-to-ico": "^3.0.1",
     "postcss": "^8.4.38",
+    "rcedit": "^5.0.2",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.1",
     "tsx": "^4.21.0",
     "typescript": "^5"

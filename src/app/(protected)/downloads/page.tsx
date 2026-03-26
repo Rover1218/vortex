@@ -1,10 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useTorrents } from "@/context/TorrentContext";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 
-const API_BASE = "http://localhost:3001";
+const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || "http://localhost:3001";
 type Tab = "All" | "Downloading" | "Paused" | "Completed";
 
 interface TorrentFile {

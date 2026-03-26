@@ -159,30 +159,27 @@ export default function SettingsPage() {
                         {/* Language preference */}
                         <div className="space-y-2">
                             <label className="text-xs text-text-2 font-medium">Preferred Language</label>
-                            <select
-                                value={localSettings.subtitleLang || "en"}
-                                onChange={e => setLocalSettings({ ...localSettings, subtitleLang: e.target.value })}
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500/40 text-sm transition-all appearance-none cursor-pointer"
-                            >
-                                <option value="en">English</option>
-                                <option value="fr">French</option>
-                                <option value="de">German</option>
-                                <option value="es">Spanish</option>
-                                <option value="pt">Portuguese</option>
-                                <option value="it">Italian</option>
-                                <option value="ja">Japanese</option>
-                                <option value="ko">Korean</option>
-                                <option value="zh">Chinese</option>
-                                <option value="hi">Hindi</option>
-                                <option value="bn">Bengali</option>
-                                <option value="ta">Tamil</option>
-                                <option value="ar">Arabic</option>
-                                <option value="ru">Russian</option>
-                                <option value="tr">Turkish</option>
-                                <option value="nl">Dutch</option>
-                                <option value="pl">Polish</option>
-                                <option value="sv">Swedish</option>
-                            </select>
+                            <div className="relative">
+                                <select
+                                    value={localSettings.subtitleLang || "en"}
+                                    onChange={e => setLocalSettings({ ...localSettings, subtitleLang: e.target.value })}
+                                    className="w-full bg-[#141420] border border-white/[0.06] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500/40 text-sm transition-all appearance-none cursor-pointer"
+                                >
+                                    {[
+                                        { v: "en", l: "English" }, { v: "fr", l: "French" }, { v: "de", l: "German" },
+                                        { v: "es", l: "Spanish" }, { v: "pt", l: "Portuguese" }, { v: "it", l: "Italian" },
+                                        { v: "ja", l: "Japanese" }, { v: "ko", l: "Korean" }, { v: "zh", l: "Chinese" },
+                                        { v: "hi", l: "Hindi" }, { v: "bn", l: "Bengali" }, { v: "ta", l: "Tamil" },
+                                        { v: "ar", l: "Arabic" }, { v: "ru", l: "Russian" }, { v: "tr", l: "Turkish" },
+                                        { v: "nl", l: "Dutch" }, { v: "pl", l: "Polish" }, { v: "sv", l: "Swedish" }
+                                    ].map(lang => (
+                                        <option key={lang.v} value={lang.v} className="bg-[#141420] text-white">{lang.l}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-text-3">
+                                    ▼
+                                </div>
+                            </div>
                             <p className="text-[10px] text-text-3">This language is used for both manual CC search and auto-download</p>
                         </div>
 
@@ -216,15 +213,23 @@ export default function SettingsPage() {
                     <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-teal/10 border border-teal/10 flex items-center justify-center text-xs font-black text-teal">🎬</div>
                         <div>
-                            <h2 className="text-sm font-bold text-white">Posters</h2>
+                            <h2 className="text-sm font-bold text-white">Posters &amp; Metadata</h2>
                             <p className="text-[11px] text-text-3">Movie &amp; show artwork shown in Library and Search</p>
                         </div>
                     </div>
-                    <div className="p-6">
-                        <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-teal/[0.06] border border-teal/15">
-                            <span className="text-teal text-lg shrink-0">✓</span>
-                            <p className="text-[12px] text-text-2 leading-relaxed">
-                                Posters are fetched automatically from <span className="text-teal font-bold">TVmaze</span> (TV &amp; KDrama), <span className="text-teal font-bold">Jikan/MyAnimeList</span> and <span className="text-teal font-bold">Kitsu</span> (anime) — completely free, no account or API key required. They load as skeletons and fill in as results appear.
+                    <div className="p-6 space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-xs text-text-2 font-medium">TMDb API Key</label>
+                            <input
+                                type="password"
+                                value={localSettings.tmdbApiKey || ""}
+                                onChange={e => setLocalSettings({ ...localSettings, tmdbApiKey: e.target.value })}
+                                placeholder="Paste your TMDB (The Movie Database) API key…"
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-white placeholder-text-3 focus:outline-none focus:border-teal/40 font-mono text-sm transition-all"
+                            />
+                            <p className="text-[11px] text-text-3 leading-relaxed mt-2">
+                                Free API key from <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" className="text-teal hover:text-teal/80 underline underline-offset-2">themoviedb.org</a>. Highly recommended for the best quality posters! <br/>
+                                If left blank, Vortex will gracefully fall back to free providers (TVmaze, Jikan, Kitsu).
                             </p>
                         </div>
                     </div>

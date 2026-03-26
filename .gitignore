@@ -42,3 +42,9 @@ next-env.d.ts
 torrents.json
 settings.json
 stats.json
+local-auth.json
+vortex-firebase-adminsdk.json
+.engine-build/
+public/downloads/README-engine.txt
+public/downloads/*.exe
+public/downloads/vortex-firebase-adminsdk.json
