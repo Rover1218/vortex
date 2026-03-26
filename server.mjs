@@ -10,6 +10,9 @@ import zlib from 'zlib';
 import { execSync } from 'child_process';
 import admin from 'firebase-admin';
 import WebTorrentImport from 'webtorrent';
+import pt from 'parse-torrent';
+
+const parseTorrent = pt.default || pt;
 
 const WebTorrentModule = WebTorrentImport.default || WebTorrentImport;
 
@@ -101,6 +104,48 @@ async function startServer() {
     } catch (err) {
         console.error('[Firebase] Init error:', err.message);
     }
+
+    // ─── Windows Protocol Registration (Auto-Open) ───
+    function registerProtocol() {
+        if (process.platform !== 'win32') return;
+        try {
+            const exePath = process.argv[0] || process.execPath;
+            const commands = [
+                `reg add "HKCU\\Software\\Classes\\vortex" /ve /d "URL:Vortex Protocol" /f`,
+                `reg add "HKCU\\Software\\Classes\\vortex" /v "URL Protocol" /d "" /f`,
+                `reg add "HKCU\\Software\\Classes\\vortex\\shell\\open\\command" /ve /d "\\"${exePath}\\" \\"%1\\"" /f`
+            ];
+            commands.forEach(cmd => {
+                try { execSync(cmd, { stdio: 'ignore' }); } catch (e) {}
+            });
+            console.log('[System] ✓ Magic Launch protocol synced');
+        } catch (e) {
+            console.warn('[System] Protocol registration failed:', e.message);
+        }
+    }
+
+    // ─── Auto-Open Dashboard (Disabled on request, just logging URL) ───
+    function logDashboardInfo() {
+        const url = 'https://vortex-movies.vercel.app';
+        console.log(`[System] Dashboard URL: ${url}`);
+    }
+
+    registerProtocol();
+    logDashboardInfo();
+
+    // ─── Idle Heartbeat (Auto-Close) ───
+    let idleTimer = null;
+    function resetIdleTimer() {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+            const socketCount = io ? io.engine.clientsCount : 0;
+            if (socketCount === 0) {
+                console.log('\n[System] No connections for 10 minutes. Shutting down Vortex... 👋');
+                process.exit(0);
+            } else { resetIdleTimer(); }
+        }, 600000); // 10 minutes
+    }
+    resetIdleTimer();
 
     // Auth Middleware
     async function verifyUser(req, res, next) {
@@ -1389,14 +1434,16 @@ async function startServer() {
                     });
 
                     if (torrentBuf.length > 0 && torrentBuf[0] === 0x64) {
-                        const pt = require('parse-torrent');
-                        const parseTorrent = pt.default || pt;
-                        const parsed = parseTorrent(torrentBuf);
-                        if (parsed && parsed.files && parsed.files.length > 0) {
-                            return res.json({
-                                name: parsed.name || result.title,
-                                files: parsed.files.map(f => ({ name: f.name, size: f.length, path: f.path })),
-                            });
+                        try {
+                            const parsed = parseTorrent(torrentBuf);
+                            if (parsed && parsed.files && parsed.files.length > 0) {
+                                return res.json({
+                                    name: parsed.name || result.title,
+                                    files: parsed.files.map(f => ({ name: f.name, size: f.length, path: f.path })),
+                                });
+                            }
+                        } catch (e) {
+                            console.error('Parse torrent failed:', e.message);
                         }
                     }
                 } catch {
@@ -1558,6 +1605,13 @@ async function startServer() {
         magnetsByHash.delete(hash);
         addedAtMap.delete(hash);
         pausedFilesByHash.delete(hash);
+
+        // Explicitly remove from Firebase if connected
+        if (db && activeUserId) {
+            db.collection('users').doc(activeUserId).collection('torrents').doc(String(hash)).delete()
+                .catch(err => console.error('[Firebase] Delete err (remove):', err.message));
+        }
+
         if (torrent) {
             client.remove(hash, { destroyStore: false }, () => { saveTorrentList(); res.json({ success: true }); });
         } else { saveTorrentList(); res.json({ success: true }); }
@@ -1580,15 +1634,24 @@ async function startServer() {
         addedAtMap.delete(hash);
         pausedFilesByHash.delete(hash);
 
+        // Explicitly remove from Firebase if connected
+        if (db && activeUserId) {
+            db.collection('users').doc(activeUserId).collection('torrents').doc(String(hash)).delete()
+                .catch(err => console.error('[Firebase] Delete err (delete-files):', err.message));
+        }
+
         const doDeleteFiles = () => {
             if (torrentName) {
                 const filePath = path.join(settings.downloadPath, torrentName);
                 try {
                     if (fs.existsSync(filePath)) {
-                        fs.statSync(filePath).isDirectory()
-                            ? fs.rmSync(filePath, { recursive: true, force: true })
-                            : fs.unlinkSync(filePath);
-                        console.log('🗑 Deleted:', filePath);
+                        try {
+                            const stats = fs.statSync(filePath);
+                            stats.isDirectory()
+                                ? fs.rmSync(filePath, { recursive: true, force: true })
+                                : fs.unlinkSync(filePath);
+                            console.log('🗑 Deleted:', filePath);
+                        } catch (e) { console.error('Delete error:', e.message); }
                     }
                 } catch (err) { console.error('Delete error:', err.message); }
             }

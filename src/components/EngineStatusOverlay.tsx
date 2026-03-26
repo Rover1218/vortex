@@ -44,19 +44,33 @@ export default function EngineStatusOverlay() {
                         </ol>
                     </div>
 
-                    <a
-                        href="https://github.com/Rover1218/vortex/releases/tag/Vortex"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-gradient-to-r from-accent to-teal text-white shadow-xl shadow-accent/20 hover:shadow-accent/40 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
-                    >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
-                        </svg>
-                        Download Engine (v0.1.0)
-                    </a>
+                    <div className="flex flex-col gap-3 w-full">
+                        <button
+                            onClick={() => { window.location.href = 'vortex://launch'; }}
+                            className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-white/[0.05] text-white border border-white/10 hover:bg-white/[0.1] transition-all duration-300"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="15 3 21 3 21 9"></polyline>
+                                <line x1="10" y1="14" x2="21" y2="3"></line>
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                            </svg>
+                            Magic Launch (Open Engine)
+                        </button>
+
+                        <a
+                            href="https://github.com/Rover1218/vortex/releases/tag/Vortex"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-gradient-to-r from-accent to-teal text-white shadow-xl shadow-accent/20 hover:shadow-accent/40 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                            First Launch? Download Engine
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
