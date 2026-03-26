@@ -68,11 +68,22 @@ export default function SettingsPage() {
 
     return (
         <div className="max-w-3xl mx-auto space-y-8">
-            <div>
-                <h1 className="text-4xl font-black tracking-tight mb-1">
-                    <span className="bg-gradient-to-r from-white to-text-2 bg-clip-text text-transparent">Settings</span>
-                </h1>
-                <p className="text-text-3 text-sm">Configure your Vortex client</p>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-4xl font-black tracking-tight mb-1">
+                        <span className="bg-gradient-to-r from-white to-text-2 bg-clip-text text-transparent">Settings</span>
+                    </h1>
+                    <p className="text-text-3 text-sm">Configure your Vortex client</p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                    <button onClick={() => setLocalSettings(settings)} className="px-5 py-2.5 text-text-3 hover:text-white text-sm transition-colors">Discard</button>
+                    <button onClick={handleSave} disabled={isSaving}
+                        className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all active:scale-95 ${saved ? 'bg-teal/20 text-teal border border-teal/20' : 'bg-gradient-to-r from-accent to-accent/80 text-white hover:brightness-110 hover:shadow-lg hover:shadow-accent/20'
+                            } disabled:opacity-50`}>
+                        {saved ? "✓ Saved!" : isSaving ? "Saving..." : "Save Settings"}
+                    </button>
+                </div>
             </div>
 
             <div className="space-y-4">
@@ -236,15 +247,7 @@ export default function SettingsPage() {
                 </section>
             </div>
 
-            {/* Save */}
-            <div className="flex justify-end gap-3">
-                <button onClick={() => setLocalSettings(settings)} className="px-5 py-2.5 text-text-3 hover:text-white text-sm transition-colors">Discard</button>
-                <button onClick={handleSave} disabled={isSaving}
-                    className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all active:scale-95 ${saved ? 'bg-teal/20 text-teal border border-teal/20' : 'bg-gradient-to-r from-accent to-accent/80 text-white hover:brightness-110 hover:shadow-lg hover:shadow-accent/20'
-                        } disabled:opacity-50`}>
-                    {saved ? "✓ Saved!" : isSaving ? "Saving..." : "Save Settings"}
-                </button>
-            </div>
+
 
             {/* Folder Browser Modal */}
             {showBrowser && (
