@@ -29,11 +29,16 @@ const config: Config = {
             },
             animation: {
                 shimmer: "shimmer 2s infinite linear",
+                float: "float 8s ease-in-out infinite",
             },
             keyframes: {
                 shimmer: {
                     "0%": { transform: "translateX(-100%) skewX(-12deg)" },
                     "100%": { transform: "translateX(200%) skewX(-12deg)" },
+                },
+                float: {
+                    "0%, 100%": { transform: "translateY(0) scale(1)" },
+                    "50%": { transform: "translateY(-20px) scale(1.02)" },
                 },
             },
         },

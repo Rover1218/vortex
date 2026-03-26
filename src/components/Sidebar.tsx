@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTorrents } from "@/context/TorrentContext";
+import { useAuth } from "@/context/AuthContext";
 
 const NAV_ITEMS = [
   { label: "Search", href: "/search", icon: "🔍" },
@@ -13,7 +14,18 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { diskInfo, torrents, totalDownloadSpeed, lifetimeDownloaded, lifetimeSeeded } = useTorrents();
+  const { user, signOut } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      router.push("/");
+    } catch (err) {
+      console.error("Logout failed:", err);
+    }
+  };
 
   const formatSize = (bytes: number, zeroLabel = "—") => {
     if (!bytes || bytes <= 0) return zeroLabel;
@@ -99,7 +111,7 @@ export default function Sidebar() {
       </div>
 
       {/* Storage */}
-      <div className="mx-3 mb-4 p-4 bg-white/[0.03] rounded-2xl border border-white/[0.04]">
+      <div className="mx-3 mb-3 p-4 bg-white/[0.03] rounded-2xl border border-white/[0.04]">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[10px] text-text-3 font-bold uppercase tracking-wider">Storage</span>
           <span className="text-[10px] text-text-3 font-mono">{usedPercent}%</span>
@@ -117,6 +129,34 @@ export default function Sidebar() {
           {usedStr} / {totalStr}
         </div>
       </div>
+
+      {/* User Profile + Logout */}
+      {user && (
+        <div className="mx-3 mb-4 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.04]">
+          <div className="flex items-center gap-3 mb-3">
+            {user.photoURL ? (
+              <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full ring-1 ring-white/10" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-bold ring-1 ring-white/10">
+                {user.displayName?.[0] || user.email?.[0] || "?"}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-white truncate">{user.displayName || "User"}</div>
+              <div className="text-[10px] text-text-3 truncate">{user.email}</div>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-text-3 hover:text-red-400 bg-white/[0.02] hover:bg-red-500/10 border border-white/[0.04] hover:border-red-500/20 transition-all duration-200"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>
+            </svg>
+            Sign Out
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

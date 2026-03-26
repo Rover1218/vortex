@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
-import { TorrentProvider } from "@/context/TorrentContext";
+import { AuthProvider } from "@/context/AuthContext";
+import MobileBlocker from "@/components/MobileBlocker";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -29,14 +29,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${dmSans.variable} ${jetBrainsMono.variable} antialiased bg-base text-text-1 min-h-screen flex`}
+        className={`${dmSans.variable} ${jetBrainsMono.variable} antialiased bg-base text-text-1 min-h-screen`}
       >
-        <TorrentProvider>
-          <Sidebar />
-          <main className="flex-1 ml-60 h-screen overflow-y-auto px-8 py-6">
+        <AuthProvider>
+          <MobileBlocker>
             {children}
-          </main>
-        </TorrentProvider>
+          </MobileBlocker>
+        </AuthProvider>
       </body>
     </html>
   );
