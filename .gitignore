@@ -39,6 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# vortex-specific ignores
 torrents.json
 settings.json
 stats.json
