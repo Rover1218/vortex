@@ -74,6 +74,24 @@ The result will be in `public/downloads/vortex.exe`.
 
 ---
 
+## 🛡️ Security & Privacy
+
+Vortex is a private, personal tool. Because the **Vortex Engine** is a new, unsigned standalone executable that performs network-intensive torrenting tasks, you may see warnings from **Windows SmartScreen** or **Antivirus** software.
+
+### ⚠️ Why is it flagged?
+1. **Unsigned Executable**: To avoid the $300+/year cost of a Code Signing Certificate, the engine is currently unsigned.
+2. **New Application**: Microsoft SmartScreen takes time to "learn" that a new application is safe.
+3. **Torrenting Activity**: The engine uses `webtorrent`, which opens multiple peer-to-peer connections. This behavior is often flagged by generic antivirus heuristics.
+
+### ✅ How to Run Safely
+1. When you see "Windows protected your PC", click **"More info"**.
+2. Click **"Run anyway"**.
+3. If your antivirus blocks it, you may need to add an exception for `vortex.exe`.
+
+**Note**: Vortex is open-source. You can always audit the code in `server.mjs` and build the executable yourself using `npm run build:engine:exe`.
+
+---
+
 ## 📜 License
 This project is for personal use and educational purposes. Ensure you comply with local laws regarding torrenting.
 

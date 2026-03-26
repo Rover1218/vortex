@@ -211,6 +211,30 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Safety & FAQ */}
+      <section className="relative z-10 max-w-5xl mx-auto px-6 py-20 scroll-mt-20">
+        <div className="text-center mb-16">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 mb-5 rounded-full bg-warning/[0.08] border border-warning/15 text-warning text-xs font-bold uppercase tracking-[0.12em]">Safety & Privacy</div>
+          <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-4">Is Vortex safe to run?</h2>
+          <p className="text-text-2 max-w-md mx-auto">Common questions about the Vortex standalone engine and Windows security flags.</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="p-8 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+            <h3 className="text-lg font-bold text-white mb-3">Why does Windows flag the engine?</h3>
+            <p className="text-sm text-text-2 leading-relaxed">
+              The Vortex Engine is a standalone tool that performs peer-to-peer networking (torrenting). Because it is not digitally signed with an expensive certificate, Windows SmartScreen flags it as "unrecognized". This is normal for many open-source tools.
+            </p>
+          </div>
+          <div className="p-8 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+            <h3 className="text-lg font-bold text-white mb-3">How do I bypass the warning?</h3>
+            <p className="text-sm text-text-2 leading-relaxed">
+              When the red "Windows protected your PC" screen appears, click <strong>"More info"</strong> and then <strong>"Run anyway"</strong>. Your engine will then start normally and connect to this dashboard.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="relative z-10 max-w-4xl mx-auto px-6 py-16 text-center">
         <div className="relative overflow-hidden p-12 md:p-16 rounded-3xl border border-white/[0.08] bg-gradient-to-br from-accent/10 via-surface to-teal/8">
