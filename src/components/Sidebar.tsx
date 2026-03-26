@@ -13,10 +13,10 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { diskInfo, torrents, totalDownloadSpeed } = useTorrents();
+  const { diskInfo, torrents, totalDownloadSpeed, lifetimeDownloaded, lifetimeSeeded } = useTorrents();
 
-  const formatSize = (bytes: number) => {
-    if (!bytes || bytes <= 0) return "—";
+  const formatSize = (bytes: number, zeroLabel = "—") => {
+    if (!bytes || bytes <= 0) return zeroLabel;
     const k = 1024;
     const sizes = ["B", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -35,6 +35,8 @@ export default function Sidebar() {
   const totalStr = diskInfo ? formatSize(diskInfo.total) : "—";
   const usedPercent = diskInfo ? Math.round((diskInfo.used / diskInfo.total) * 100) : 0;
   const activeDownloads = torrents.filter(t => t.status === 'Downloading').length;
+  const totalDownloadedAll = lifetimeDownloaded;
+  const totalSeededAll = lifetimeSeeded;
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-60 bg-[#08081a]/90 backdrop-blur-xl border-r border-white/[0.04] flex flex-col z-50">
@@ -80,6 +82,21 @@ export default function Sidebar() {
           <div className="text-sm font-mono font-bold text-white mt-1">↓ {formatSpeed(totalDownloadSpeed)}</div>
         </div>
       )}
+
+      {/* Universal totals */}
+      <div className="mx-3 mb-3 p-3 bg-white/[0.03] rounded-xl border border-white/[0.04]">
+        <div className="text-[10px] text-text-3 font-bold uppercase tracking-wider mb-2">Totals</div>
+        <div className="space-y-1.5 text-xs font-mono">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-text-3">Downloaded</span>
+            <span className="text-white font-bold">{formatSize(totalDownloadedAll, "0 B")}</span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-text-3">Seeded</span>
+            <span className="text-teal font-bold">{formatSize(totalSeededAll, "0 B")}</span>
+          </div>
+        </div>
+      </div>
 
       {/* Storage */}
       <div className="mx-3 mb-4 p-4 bg-white/[0.03] rounded-2xl border border-white/[0.04]">

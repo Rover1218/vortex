@@ -20,6 +20,7 @@ app.use(express.json());
 // ─── Settings ───
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json');
 const TORRENTS_FILE = path.join(process.cwd(), 'torrents.json');
+const STATS_FILE = path.join(process.cwd(), 'stats.json');
 const DEFAULT_SETTINGS = { downloadPath: path.join(process.cwd(), 'downloads'), globalDownloadLimit: 0, globalUploadLimit: 0, opensubtitlesApiKey: '', tmdbApiKey: '', autoSubtitle: false, subtitleLang: 'en' };
 
 let settings = { ...DEFAULT_SETTINGS };
@@ -46,6 +47,59 @@ const magnetsByHash = new Map(); // tracks original magnet URIs by infoHash
 const addedAtMap = new Map();   // tracks when each torrent was first added
 const namesMap = new Map();     // persistent name store — survives state transitions
 const pausedFilesByHash = new Map(); // tracks per-file paused state while torrent is active
+let lifetimeTotals = { downloaded: 0, seeded: 0 };
+let lastLifetimeTickAt = Date.now();
+
+function toFiniteNonNegative(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function loadLifetimeTotals() {
+    if (!fs.existsSync(STATS_FILE)) return;
+    try {
+        const saved = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'));
+        lifetimeTotals.downloaded = toFiniteNonNegative(saved.downloaded);
+        lifetimeTotals.seeded = toFiniteNonNegative(saved.seeded);
+    } catch {
+        lifetimeTotals = { downloaded: 0, seeded: 0 };
+    }
+}
+
+function saveLifetimeTotals() {
+    lifetimeTotals.downloaded = toFiniteNonNegative(lifetimeTotals.downloaded);
+    lifetimeTotals.seeded = toFiniteNonNegative(lifetimeTotals.seeded);
+    fs.writeFileSync(STATS_FILE, JSON.stringify(lifetimeTotals, null, 2));
+}
+
+function resolveUploaded(downloaded, uploaded, ratio) {
+    const downloadedSafe = toFiniteNonNegative(downloaded);
+    const uploadedSafe = Number(uploaded);
+    if (Number.isFinite(uploadedSafe) && uploadedSafe >= 0) return uploadedSafe;
+    const ratioSafe = toFiniteNonNegative(ratio);
+    return Math.round(ratioSafe * downloadedSafe);
+}
+
+function accumulateLifetimeFromSpeeds(downloadSpeed, uploadSpeed, elapsedMs) {
+    const seconds = Math.max(0, elapsedMs) / 1000;
+    if (seconds <= 0) return;
+
+    const dl = toFiniteNonNegative(downloadSpeed) * seconds;
+    const ul = toFiniteNonNegative(uploadSpeed) * seconds;
+    if (dl <= 0 && ul <= 0) return;
+
+    lifetimeTotals.downloaded += dl;
+    lifetimeTotals.seeded += ul;
+    saveLifetimeTotals();
+}
+
+function archiveTorrentTransfer(hash, activeTorrent = null) {
+    // Intentionally no-op.
+    // Lifetime totals are measured from network transfer speed, not torrent progress snapshots.
+}
+
+loadLifetimeTotals();
+saveLifetimeTotals();
 
 function getPausedFileSet(hash) {
     const existing = pausedFilesByHash.get(hash);
@@ -85,9 +139,20 @@ function saveTorrentList() {
     for (const t of client.torrents) {
         const name = t.name || namesMap.get(t.infoHash) || getNameFromMagnet(magnetsByHash.get(t.infoHash));
         if (name) namesMap.set(t.infoHash, name); // keep namesMap current
+        const uploadedNow = resolveUploaded(t.downloaded || 0, t.uploaded, t.ratio);
         if (t.progress === 1) {
-            // Seeding — save as completed so on restart we don't try to re-add
-            list.push({ name, infoHash: t.infoHash, state: 'completed', downloaded: t.downloaded, totalLength: t.length || 0, addedAt: addedAtMap.get(t.infoHash) || Date.now() });
+            // Seeding is active work; persist separately so it can resume after restart.
+            list.push({
+                name,
+                infoHash: t.infoHash,
+                state: 'seeding',
+                magnet: t.magnetURI || magnetsByHash.get(t.infoHash),
+                downloaded: t.downloaded,
+                uploaded: uploadedNow,
+                ratio: t.ratio || 0,
+                totalLength: t.length || 0,
+                addedAt: addedAtMap.get(t.infoHash) || Date.now()
+            });
         } else {
             list.push({ magnet: t.magnetURI || magnetsByHash.get(t.infoHash), name, infoHash: t.infoHash, state: 'active', addedAt: addedAtMap.get(t.infoHash) || Date.now() });
         }
@@ -98,7 +163,17 @@ function saveTorrentList() {
     }
     for (const [hash, data] of completedTorrents.entries()) {
         const name = data.name || namesMap.get(hash);
-        list.push({ name, infoHash: hash, state: 'completed', downloaded: data.downloaded, totalLength: data.totalLength, addedAt: data.addedAt || Date.now() });
+        list.push({
+            name,
+            infoHash: hash,
+            state: 'completed',
+            magnet: data.magnet || magnetsByHash.get(hash),
+            downloaded: data.downloaded,
+            uploaded: data.uploaded || 0,
+            ratio: data.ratio || 0,
+            totalLength: data.totalLength,
+            addedAt: data.addedAt || Date.now()
+        });
     }
     fs.writeFileSync(TORRENTS_FILE, JSON.stringify(list, null, 2));
 }
@@ -360,6 +435,7 @@ const restoredHashes = new Set();
 
 // Restore saved torrents
 const savedTorrents = loadSavedTorrents();
+
 if (savedTorrents.length > 0) {
     console.log(`Restoring ${savedTorrents.length} saved items...`);
     savedTorrents.forEach(st => {
@@ -367,9 +443,43 @@ if (savedTorrents.length > 0) {
         if (st.infoHash && st.name) namesMap.set(st.infoHash, st.name);
 
         if (st.state === 'completed') {
-            completedTorrents.set(st.infoHash, { name: st.name, downloaded: st.downloaded, totalLength: st.totalLength, addedAt: st.addedAt });
+            completedTorrents.set(st.infoHash, {
+                name: st.name,
+                magnet: st.magnet,
+                downloaded: st.downloaded,
+                uploaded: st.uploaded || 0,
+                ratio: st.ratio || 0,
+                totalLength: st.totalLength,
+                addedAt: st.addedAt
+            });
+            if (st.magnet) magnetsByHash.set(st.infoHash, st.magnet);
             restoredHashes.add(st.infoHash);
             console.log(`  ✓ Completed: ${st.name}`);
+        } else if (st.state === 'seeding' && st.magnet) {
+            if (st.infoHash) magnetsByHash.set(st.infoHash, st.magnet);
+            if (st.infoHash && st.addedAt) addedAtMap.set(st.infoHash, st.addedAt);
+            try {
+                client.add(st.magnet, { path: settings.downloadPath, announce: TPB_TRACKERS, maxWebConns: 20 }, (torrent) => {
+                    const resolvedName = torrent.name || st.name || getNameFromMagnet(st.magnet);
+                    if (resolvedName) namesMap.set(torrent.infoHash, resolvedName);
+                    console.log(`  ▶ Restored seeding: ${resolvedName || torrent.infoHash}`);
+                    if (torrent.infoHash) {
+                        magnetsByHash.set(torrent.infoHash, torrent.magnetURI || st.magnet);
+                        if (!addedAtMap.has(torrent.infoHash)) addedAtMap.set(torrent.infoHash, st.addedAt || Date.now());
+                    }
+                });
+            } catch (err) {
+                console.error(`  ✗ Failed to restore seeding: ${err.message}`);
+                completedTorrents.set(st.infoHash, {
+                    name: st.name,
+                    magnet: st.magnet,
+                    downloaded: st.downloaded || st.totalLength || 0,
+                    uploaded: st.uploaded || 0,
+                    ratio: st.ratio || 0,
+                    totalLength: st.totalLength || st.downloaded || 0,
+                    addedAt: st.addedAt
+                });
+            }
         } else if (st.state === 'paused') {
             // Ensure paused torrents always have a valid magnet for resume
             const savedMagnet = st.magnet || `magnet:?xt=urn:btih:${st.infoHash}`;
@@ -400,7 +510,14 @@ if (savedTorrents.length > 0) {
 
 // ─── Real-Time Status Broadcast ───
 setInterval(() => {
+    // Continuously account true network bytes transferred since last tick.
+    const now = Date.now();
+    const elapsedMs = now - lastLifetimeTickAt;
+    lastLifetimeTickAt = now;
+    accumulateLifetimeFromSpeeds(client.downloadSpeed || 0, client.uploadSpeed || 0, elapsedMs);
+
     const activeTorrents = client.torrents.map(t => ({
+        uploaded: resolveUploaded(t.downloaded || 0, t.uploaded, t.ratio) || 0,
         infoHash: t.infoHash,
         name: t.name || namesMap.get(t.infoHash) || getNameFromMagnet(magnetsByHash.get(t.infoHash)) || 'Loading metadata...',
         progress: (t.progress * 100).toFixed(2),
@@ -415,7 +532,7 @@ setInterval(() => {
         name: data.name || namesMap.get(hash) || getNameFromMagnet(data.magnet) || 'Unknown',
         progress: data.progress || '0.00',
         downloadSpeed: 0, uploadSpeed: 0, numPeers: 0, timeRemaining: 0,
-        downloaded: data.downloaded || 0, totalLength: data.totalLength || 0, ratio: 0, status: 'Paused'
+        downloaded: data.downloaded || 0, uploaded: 0, totalLength: data.totalLength || 0, ratio: 0, status: 'Paused'
     }));
 
     const completed = Array.from(completedTorrents.entries()).map(([hash, data]) => ({
@@ -423,13 +540,18 @@ setInterval(() => {
         name: data.name || namesMap.get(hash) || 'Unknown',
         progress: '100.00',
         downloadSpeed: 0, uploadSpeed: 0, numPeers: 0, timeRemaining: 0,
-        downloaded: data.downloaded || 0, totalLength: data.totalLength || data.downloaded || 0, ratio: 0, status: 'Completed'
+        downloaded: data.downloaded || 0,
+        uploaded: data.uploaded || 0,
+        totalLength: data.totalLength || data.downloaded || 0,
+        ratio: data.ratio || 0,
+        status: 'Completed'
     }));
 
     io.emit('torrent-status', {
         torrents: [...activeTorrents, ...paused, ...completed],
         totalDownloadSpeed: client.downloadSpeed || 0,
         totalUploadSpeed: client.uploadSpeed || 0,
+        lifetimeTotals,
         settings
     });
 }, 1000);
@@ -1173,12 +1295,13 @@ app.post('/api/torrents', (req, res) => {
 // ─── Remove Torrent (keep files) ───
 app.delete('/api/torrents/:infoHash', (req, res) => {
     const hash = req.params.infoHash;
+    const torrent = client.torrents.find(t => t.infoHash === hash);
+    archiveTorrentTransfer(hash, torrent);
     pausedTorrents.delete(hash);
     completedTorrents.delete(hash);
     magnetsByHash.delete(hash);
     addedAtMap.delete(hash);
     pausedFilesByHash.delete(hash);
-    const torrent = client.torrents.find(t => t.infoHash === hash);
     if (torrent) {
         client.remove(hash, { destroyStore: false }, () => { saveTorrentList(); res.json({ success: true }); });
     } else { saveTorrentList(); res.json({ success: true }); }
@@ -1190,6 +1313,7 @@ app.delete('/api/torrents/:infoHash/delete-files', (req, res) => {
     const isPaused = pausedTorrents.has(hash);
     // Use find() — definitive check, avoids stale client.get() reference
     const torrent = isPaused ? null : client.torrents.find(t => t.infoHash === hash);
+    archiveTorrentTransfer(hash, torrent);
     const torrentName = torrent?.name || namesMap.get(hash) ||
         completedTorrents.get(hash)?.name ||
         pausedTorrents.get(hash)?.name || null;
@@ -1284,9 +1408,13 @@ app.post('/api/torrents/:infoHash/stop-seeding', (req, res) => {
     const torrent = client.torrents.find(t => t.infoHash === hash);
     const name = (torrent?.name) || namesMap.get(hash) || 'Unknown';
     namesMap.set(hash, name);
+    const uploadedNow = resolveUploaded(torrent?.downloaded || 0, torrent?.uploaded, torrent?.ratio);
     completedTorrents.set(hash, {
         name,
+        magnet: magnetsByHash.get(hash) || torrent?.magnetURI || `magnet:?xt=urn:btih:${hash}`,
         downloaded: torrent?.downloaded || torrent?.length || 0,
+        uploaded: uploadedNow || 0,
+        ratio: torrent?.ratio || 0,
         totalLength: torrent?.length || torrent?.downloaded || 0,
         addedAt: addedAtMap.get(hash) || Date.now()
     });
@@ -1295,6 +1423,40 @@ app.post('/api/torrents/:infoHash/stop-seeding', (req, res) => {
         client.remove(hash, { destroyStore: false }, () => { saveTorrentList(); res.json({ success: true }); });
     } else {
         saveTorrentList(); res.json({ success: true });
+    }
+});
+
+// ─── Start Seeding Again (from Completed) ───
+app.post('/api/torrents/:infoHash/start-seeding', (req, res) => {
+    const hash = req.params.infoHash;
+    const existing = client.torrents.find(t => t.infoHash === hash);
+    if (existing) return res.json({ success: true, alreadyActive: true });
+
+    const completed = completedTorrents.get(hash);
+    if (!completed) return res.status(404).json({ error: 'Completed torrent not found' });
+
+    const magnet = completed.magnet || magnetsByHash.get(hash) || `magnet:?xt=urn:btih:${hash}`;
+    if (!magnet) return res.status(400).json({ error: 'No magnet available to start seeding' });
+
+    try {
+        const torrent = client.add(magnet, { path: settings.downloadPath, announce: TPB_TRACKERS, maxWebConns: 20 });
+        completedTorrents.delete(hash);
+        magnetsByHash.set(hash, magnet);
+        torrent.on('metadata', () => {
+            if (torrent.name) namesMap.set(torrent.infoHash, torrent.name);
+            if (torrent.infoHash) magnetsByHash.set(torrent.infoHash, torrent.magnetURI || magnet);
+            applyPausedFileSelections(torrent);
+            saveTorrentList();
+        });
+        saveTorrentList();
+        return res.json({ success: true });
+    } catch (err) {
+        if (err.message?.includes('duplicate') || err.message?.includes('Cannot add')) {
+            completedTorrents.delete(hash);
+            saveTorrentList();
+            return res.json({ success: true, alreadyActive: true });
+        }
+        return res.status(500).json({ error: err.message || 'Failed to start seeding' });
     }
 });
 

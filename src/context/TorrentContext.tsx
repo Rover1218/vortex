@@ -9,6 +9,7 @@ interface TorrentState {
     infoHash: string; name: string; progress: string;
     downloadSpeed: number; uploadSpeed: number; numPeers: number;
     timeRemaining: number; downloaded: number; totalLength: number;
+    uploaded?: number;
     ratio: number; status: string;
 }
 
@@ -26,6 +27,8 @@ interface TorrentContextType {
     torrents: TorrentState[];
     totalDownloadSpeed: number;
     totalUploadSpeed: number;
+    lifetimeDownloaded: number;
+    lifetimeSeeded: number;
     settings: Settings | null;
     diskInfo: DiskInfo | null;
     library: LibraryItem[];
@@ -47,6 +50,7 @@ interface TorrentContextType {
     removeTorrent: (infoHash: string) => Promise<void>;
     pauseTorrent: (infoHash: string) => Promise<void>;
     resumeTorrent: (infoHash: string) => Promise<void>;
+    startSeeding: (infoHash: string) => Promise<void>;
     setTorrentFileSelection: (infoHash: string, filePath: string, action: 'pause' | 'resume') => Promise<any[]>;
     stopSeeding: (infoHash: string) => Promise<void>;
     deleteWithFiles: (infoHash: string) => Promise<void>;
@@ -63,6 +67,8 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
     const [torrents, setTorrents] = useState<TorrentState[]>([]);
     const [totalDownloadSpeed, setTotalDownloadSpeed] = useState(0);
     const [totalUploadSpeed, setTotalUploadSpeed] = useState(0);
+    const [lifetimeDownloaded, setLifetimeDownloaded] = useState(0);
+    const [lifetimeSeeded, setLifetimeSeeded] = useState(0);
     const [settings, setSettings] = useState<Settings | null>(null);
     const [diskInfo, setDiskInfo] = useState<DiskInfo | null>(null);
     const [library, setLibrary] = useState<LibraryItem[]>([]);
@@ -82,6 +88,8 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
             setTorrents(data.torrents || []);
             setTotalDownloadSpeed(data.totalDownloadSpeed || 0);
             setTotalUploadSpeed(data.totalUploadSpeed || 0);
+            setLifetimeDownloaded(data.lifetimeTotals?.downloaded || 0);
+            setLifetimeSeeded(data.lifetimeTotals?.seeded || 0);
             if (data.settings) setSettings(data.settings);
         });
 
@@ -189,6 +197,11 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
         catch (err) { console.error('Failed to resume torrent:', err); }
     };
 
+    const startSeeding = async (infoHash: string) => {
+        try { await axios.post(`${API_BASE}/api/torrents/${infoHash}/start-seeding`); }
+        catch (err) { console.error('Failed to start seeding:', err); }
+    };
+
     const setTorrentFileSelection = async (infoHash: string, filePath: string, action: 'pause' | 'resume') => {
         try {
             const res = await axios.post(`${API_BASE}/api/torrents/${infoHash}/files/selection`, { path: filePath, action });
@@ -243,11 +256,12 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
     return (
         <TorrentContext.Provider value={{
             torrents, totalDownloadSpeed, totalUploadSpeed,
+            lifetimeDownloaded, lifetimeSeeded,
             settings, diskInfo, library,
             searchResults, searchLogs, searchQuery, searchCategory, isSearching,
             searchPosters, setSearchPosters,
             setSearchQuery, setSearchCategory, doSearch, cancelSearch, clearSearch, getSuggestions,
-            addMagnet, removeTorrent, pauseTorrent, resumeTorrent, setTorrentFileSelection, stopSeeding, deleteWithFiles,
+            addMagnet, removeTorrent, pauseTorrent, resumeTorrent, startSeeding, setTorrentFileSelection, stopSeeding, deleteWithFiles,
             updateSettings, fetchDiskInfo, fetchLibrary, browseFolders
         }}>
             {children}

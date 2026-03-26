@@ -92,7 +92,7 @@ const IconCheckCircle = () => (
 );
 
 export default function DownloadsPage() {
-    const { torrents, totalDownloadSpeed, totalUploadSpeed, pauseTorrent, resumeTorrent, setTorrentFileSelection, stopSeeding, deleteWithFiles, diskInfo } = useTorrents();
+    const { torrents, totalDownloadSpeed, totalUploadSpeed, pauseTorrent, resumeTorrent, startSeeding, setTorrentFileSelection, stopSeeding, deleteWithFiles, diskInfo } = useTorrents();
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<Tab>("All");
     const [drawerHash, setDrawerHash] = useState<string | null>(null);
@@ -298,6 +298,8 @@ export default function DownloadsPage() {
                         const isSeeding = t.status === "Seeding";
                         const isPaused = t.status === "Paused";
                         const isDone = isCompleted || isSeeding;
+                        const totalDownloaded = t.downloaded || 0;
+                        const totalSeeded = t.uploaded || 0;
                         const barGradient = isDone ? "from-teal to-emerald-400" : isPaused ? "from-warning to-amber-400" : "from-accent to-teal";
                         const isActive = t.status === "Downloading" || t.status === "Seeding"; // has real-time files
 
@@ -317,6 +319,8 @@ export default function DownloadsPage() {
                                                 {!isDone && <span>Peers <span className="text-text-2 font-mono font-bold">{t.numPeers}</span></span>}
                                                 <span>Size <span className="text-text-2 font-mono font-bold">{formatSize(t.totalLength)}</span></span>
                                                 {!isDone && !isPaused && <span>ETA <span className="text-teal font-mono font-bold">{formatETA(t.timeRemaining)}</span></span>}
+                                                <span>Downloaded <span className="text-text-2 font-mono font-bold">{formatSize(totalDownloaded)}</span></span>
+                                                {isDone && <span>Seeded <span className="text-text-2 font-mono font-bold">{formatSize(totalSeeded)}</span></span>}
                                                 <span className={`font-mono font-bold ${isDone ? "text-teal" : isPaused ? "text-warning" : "text-accent"}`}>{progress.toFixed(1)}%</span>
                                             </div>
                                         </div>
@@ -340,6 +344,12 @@ export default function DownloadsPage() {
                                                     <button onClick={() => stopSeeding(t.infoHash)}
                                                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-teal/10 text-teal hover:bg-teal/20 border border-teal/10 transition-all">
                                                         <IconStop /> Stop
+                                                    </button>
+                                                )}
+                                                {isCompleted && (
+                                                    <button onClick={() => startSeeding(t.infoHash)}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/10 transition-all">
+                                                        <IconPlay /> Seed
                                                     </button>
                                                 )}
                                                 {!isDone && (
