@@ -34,7 +34,25 @@ body {
 }
 
 html {
-  overflow-y: scroll;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+body {
+  overflow-x: hidden;
+  text-rendering: optimizeLegibility;
+}
+
+/* Generic performance helpers for long scrolling pages */
+.perf-auto {
+  contain: layout style paint;
+}
+
+@supports (content-visibility: auto) {
+  .perf-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: 1px 900px;
+  }
 }
 
 /* Premium Scrollbar */

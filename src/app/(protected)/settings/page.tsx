@@ -13,6 +13,7 @@ export default function SettingsPage() {
     const [showBrowser, setShowBrowser] = useState(false);
     const [browserData, setBrowserData] = useState<any>(null);
     const [browserLoading, setBrowserLoading] = useState(false);
+    const panelClassName = "perf-auto rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] overflow-hidden";
 
     useEffect(() => {
         if (settings && !localSettings) {
@@ -67,9 +68,7 @@ export default function SettingsPage() {
     }
 
     return (
-        <div className="max-w-4xl mx-auto space-y-8 pb-10 relative">
-            <div className="pointer-events-none absolute -top-10 left-[-12%] h-64 w-64 rounded-full bg-accent/10 blur-3xl" />
-            <div className="pointer-events-none absolute top-52 right-[-10%] h-72 w-72 rounded-full bg-teal/8 blur-3xl" />
+        <div className="max-w-4xl mx-auto space-y-8 pb-10 relative perf-auto">
 
             <div className="relative z-10 flex items-center justify-between rounded-3xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] px-6 py-5">
                 <div>
@@ -91,7 +90,7 @@ export default function SettingsPage() {
 
             <div className="space-y-4">
                 {/* Download Location */}
-                <section className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] overflow-hidden backdrop-blur-sm">
+                <section className={panelClassName}>
                     <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/10 flex items-center justify-center text-sm">📂</div>
                         <div>
@@ -115,7 +114,7 @@ export default function SettingsPage() {
                 </section>
 
                 {/* Bandwidth */}
-                <section className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] overflow-hidden backdrop-blur-sm">
+                <section className={panelClassName}>
                     <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-teal/10 border border-teal/10 flex items-center justify-center text-sm">🌐</div>
                         <div>
@@ -150,7 +149,7 @@ export default function SettingsPage() {
                 </section>
 
                 {/* Subtitles */}
-                <section className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] overflow-hidden backdrop-blur-sm">
+                <section className={panelClassName}>
                     <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/10 flex items-center justify-center text-sm">CC</div>
                         <div>
@@ -223,7 +222,7 @@ export default function SettingsPage() {
                 </section>
 
                 {/* Posters info */}
-                <section className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] overflow-hidden backdrop-blur-sm">
+                <section className={panelClassName}>
                     <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-teal/10 border border-teal/10 flex items-center justify-center text-xs font-black text-teal">🎬</div>
                         <div>

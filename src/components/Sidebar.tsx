@@ -52,7 +52,7 @@ export default function Sidebar() {
   const totalSeededAll = lifetimeSeeded;
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-60 bg-gradient-to-b from-[#090922]/95 via-[#09091f]/94 to-[#07071a]/94 backdrop-blur-xl border-r border-white/[0.06] flex flex-col z-50">
+    <aside className="fixed left-0 top-0 h-screen w-60 bg-gradient-to-b from-[#090922]/98 via-[#09091f]/97 to-[#07071a]/97 backdrop-blur-sm border-r border-white/[0.06] flex flex-col z-50">
       {/* Logo */}
       <div className="p-6 pb-2 border-b border-white/[0.04]">
         <div className="flex items-center gap-2">
