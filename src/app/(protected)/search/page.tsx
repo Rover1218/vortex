@@ -82,6 +82,7 @@ export default function SearchPage() {
     const sortRef = useRef<HTMLDivElement>(null);
     const suggestionRef = useRef<HTMLDivElement>(null);
     const searchSubmittedRef = useRef(false);
+    const magnetCacheRef = useRef<Map<number, string>>(new Map());
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -127,8 +128,12 @@ export default function SearchPage() {
             if (!r.ok) { setSubError(data.error || 'Search failed'); return; }
             setSubResults(data);
             if (data.length === 0) setSubError('No subtitles found. Try a shorter title or different language.');
-        } catch {
-            setSubError('Connection error — is the server running?');
+        } catch (err: unknown) {
+            if (err instanceof Error && err.message) {
+                setSubError(err.message);
+            } else {
+                setSubError('Connection error — is the server running?');
+            }
         } finally {
             setSubLoading(false);
         }
@@ -216,23 +221,37 @@ export default function SearchPage() {
 
     const handleAdd = async (id: number) => {
         const item = searchResults.find(r => r.id === id);
-        if (item?.inLibrary || item?.provider === 'Local') return;
+        if (item?.inLibrary || item?.provider === 'Local' || addingId === id || addedIds.has(id)) return;
         setAddingId(id);
         setErrorId(null);
         try {
-            const magnetRes = await fetch(`${API_BASE}/api/magnet/${id}`);
-            if (!magnetRes.ok) throw new Error('Magnet fetch failed');
-            const { magnet } = await magnetRes.json();
-            if (!magnet) throw new Error('No magnet returned');
+            let magnet = magnetCacheRef.current.get(id);
+            if (!magnet) {
+                const magnetRes = await fetch(`${API_BASE}/api/magnet/${id}`);
+                if (!magnetRes.ok) throw new Error('Magnet fetch failed');
+                const payload = await magnetRes.json();
+                magnet = payload?.magnet;
+                if (!magnet) throw new Error('No magnet returned');
+                magnetCacheRef.current.set(id, magnet);
+            }
+
+            // Optimistic UI: mark as added immediately so Add action feels instant.
+            setAddedIds(prev => new Set(prev).add(id));
+            setAddingId(null);
 
             await addMagnet(magnet);
-            setAddedIds(prev => new Set(prev).add(id));
         } catch (err) {
             console.error('Add error:', err);
+            setAddedIds(prev => {
+                const next = new Set(prev);
+                next.delete(id);
+                return next;
+            });
             setErrorId(id);
             setTimeout(() => setErrorId(null), 3000);
+        } finally {
+            setAddingId(null);
         }
-        setAddingId(null);
     };
 
     const parseSize = (s: string) => {
@@ -368,7 +387,7 @@ export default function SearchPage() {
                 toFetch.push({ key: g.key, query: g.showName });
             }
         });
-        flatItems.slice(0, 40).forEach(r => {
+        flatItems.slice(0, 24).forEach(r => {
             const k = `flat_${r.id}`;
             if (posters[k] === undefined && !fetchingRef.current.has(k)) {
                 toFetch.push({ key: k, query: r.title });
@@ -392,17 +411,21 @@ export default function SearchPage() {
             for (let i = 0; i < toFetch.length; i += batchSize) {
                 if (controller.signal.aborted) break;
                 const batch = toFetch.slice(i, i + batchSize);
+                const posterBatchUpdates: Record<string, string | null> = {};
                 await Promise.all(batch.map(async ({ key, query }) => {
                     try {
                         const r = await fetch(`${API_BASE}/api/poster?q=${encodeURIComponent(query)}`, { signal: controller.signal });
                         const data = await r.json();
-                        setPosters(prev => ({ ...prev, [key]: data?.poster ?? null }));
+                        posterBatchUpdates[key] = data?.poster ?? null;
                     } catch {
-                        if (!controller.signal.aborted) setPosters(prev => ({ ...prev, [key]: null }));
+                        if (!controller.signal.aborted) posterBatchUpdates[key] = null;
                     } finally {
                         fetchingRef.current.delete(key);
                     }
                 }));
+                if (Object.keys(posterBatchUpdates).length > 0) {
+                    setPosters(prev => ({ ...prev, ...posterBatchUpdates }));
+                }
                 if (toFetch.length > batchSize && !controller.signal.aborted) await new Promise(res => setTimeout(res, 100));
             }
         })();
@@ -431,18 +454,23 @@ export default function SearchPage() {
     };
 
     return (
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="max-w-5xl mx-auto space-y-6 pb-8 relative">
+            <div className="pointer-events-none absolute -top-10 left-[-18%] h-72 w-72 rounded-full bg-accent/10 blur-3xl" />
+            <div className="pointer-events-none absolute top-56 right-[-12%] h-64 w-64 rounded-full bg-teal/10 blur-3xl" />
+
             {/* Hero Search */}
-            <div className="relative rounded-3xl p-8 pb-10">
-                <div className="absolute inset-0 bg-gradient-to-br from-accent/20 via-[#1a1040] to-teal/10 -z-10 rounded-3xl overflow-hidden" />
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(124,106,255,0.15),transparent_60%)] -z-10 rounded-3xl" />
+            <div className="relative z-20 rounded-3xl p-8 pb-10 border border-white/[0.08] bg-gradient-to-br from-[#17103a]/85 via-[#14102f]/85 to-[#081925]/75 shadow-[0_22px_80px_-35px_rgba(54,140,255,0.55)]">
+                <div className="absolute -top-20 -left-16 h-48 w-48 rounded-full bg-accent/20 blur-3xl pointer-events-none" />
+                <div className="absolute -bottom-24 right-10 h-56 w-56 rounded-full bg-teal/15 blur-3xl pointer-events-none" />
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(124,106,255,0.2),transparent_62%)] pointer-events-none" />
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/60 to-transparent pointer-events-none" />
 
                 <h1 className="text-4xl font-black text-center mb-6 tracking-tight text-white">
                     Search Torrents
                 </h1>
 
                 <div className="relative max-w-2xl mx-auto" ref={suggestionRef}>
-                    <form onSubmit={(e) => handleSearch(e)} className="flex bg-white/[0.06] backdrop-blur-xl border border-white/[0.08] rounded-2xl overflow-hidden focus-within:border-accent/40 transition-all">
+                    <form onSubmit={(e) => handleSearch(e)} className="flex bg-[#1c1742]/70 backdrop-blur-md border border-white/[0.1] rounded-2xl overflow-hidden focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_rgba(124,106,255,0.14)] transition-all">
                         <input
                             type="text" value={searchQuery}
                             onChange={(e) => {
@@ -468,7 +496,7 @@ export default function SearchPage() {
                             </button>
                         ) : (
                             <button type="submit"
-                                className="px-8 py-4 bg-gradient-to-r from-accent to-accent/80 text-white font-bold text-sm hover:brightness-110 transition-all">
+                                className="px-8 py-4 bg-gradient-to-r from-accent via-accent to-[#6351ff] text-white font-bold text-sm hover:brightness-110 transition-all">
                                 Search
                             </button>
                         )}
@@ -476,7 +504,7 @@ export default function SearchPage() {
 
                     {/* Suggestions Dropdown */}
                     {showSuggestions && suggestions.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-3 bg-[#111122] border border-accent/20 rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-[100] overflow-hidden py-2 backdrop-blur-2xl">
+                        <div className="absolute top-full left-0 right-0 mt-3 bg-[#111122]/95 border border-accent/25 rounded-2xl shadow-[0_16px_52px_-12px_rgba(0,0,0,0.78)] z-[200] overflow-hidden py-2 backdrop-blur-md max-h-[18rem] overflow-y-auto">
                             <div className="px-5 py-2 text-[10px] font-bold text-accent/50 uppercase tracking-widest border-b border-white/5 mb-1">Suggestions</div>
                             {suggestions.map((s, i) => (
                                 <button key={i} onClick={() => { setSearchQuery(s); handleSearch(undefined, s); }}
@@ -495,8 +523,8 @@ export default function SearchPage() {
                         <button key={opt.label}
                             onClick={() => setQualityFilter(opt.label)}
                             className={`px-3.5 py-1.5 rounded-xl border text-[11px] font-bold transition-all ${qualityFilter === opt.label
-                                ? 'bg-accent/25 border-accent/50 text-accent scale-[1.05]'
-                                : 'bg-white/[0.04] border-white/[0.07] text-text-3 hover:text-white hover:bg-white/[0.08]'
+                                ? 'bg-accent/25 border-accent/55 text-accent scale-[1.05] shadow-[0_0_0_1px_rgba(124,106,255,0.24)]'
+                                : 'bg-white/[0.05] border-white/[0.1] text-text-3 hover:text-white hover:bg-white/[0.1]'
                                 }`}>
                             {opt.label}
                         </button>
@@ -506,51 +534,53 @@ export default function SearchPage() {
 
             {/* Search Progress Logs — clickable to filter by provider */}
             {searchLogs.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                    {searchLogs.map((log: any) => {
-                        const isActive = providerFilter === log.name;
-                        const isDone = log.status === 'done';
-                        const count = isDone
-                            ? searchResults.filter(r => matchesProviderFilter(r, log.name)).length
-                            : 0;
-                        return (
-                            <button
-                                key={log.name}
-                                onClick={() => isDone ? setProviderFilter(isActive ? null : log.name) : undefined}
-                                disabled={!isDone}
-                                className={`px-4 py-2.5 rounded-xl border text-[11px] font-bold transition-all flex items-center gap-2
+                <div className="relative z-10 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 sm:p-4">
+                    <div className="flex flex-wrap gap-2">
+                        {searchLogs.map((log: any) => {
+                            const isActive = providerFilter === log.name;
+                            const isDone = log.status === 'done';
+                            const count = isDone
+                                ? searchResults.filter(r => matchesProviderFilter(r, log.name)).length
+                                : 0;
+                            return (
+                                <button
+                                    key={log.name}
+                                    onClick={() => isDone ? setProviderFilter(isActive ? null : log.name) : undefined}
+                                    disabled={!isDone}
+                                    className={`px-4 py-2.5 rounded-xl border text-[11px] font-bold transition-all flex items-center gap-2
                                     ${isDone
-                                        ? isActive
-                                            ? 'bg-teal/20 border-teal/40 text-teal ring-1 ring-teal/30 scale-[1.03]'
-                                            : 'bg-teal/10 border-teal/20 text-teal hover:bg-teal/20 hover:scale-[1.02] cursor-pointer'
-                                        : log.status === 'searching'
-                                            ? 'bg-accent/10 border-accent/20 text-accent animate-pulse-glow cursor-default'
-                                            : log.status === 'error'
-                                                ? 'bg-red-500/10 border-red-500/20 text-red-400 cursor-default opacity-70'
-                                                : 'bg-white/[0.02] border-white/[0.04] text-text-3 opacity-40 cursor-default'
-                                    }`}
-                            >
-                                <span className="uppercase tracking-widest">{log.name}</span>
-                                {isDone ? (
-                                    <span className={`font-mono px-1.5 py-0.5 rounded-md text-[10px] ${isActive ? 'bg-teal/20' : 'bg-white/[0.06]'}`}>
-                                        {isActive ? `${count}` : `${count} res`}
-                                    </span>
-                                ) : log.status === 'searching' ? (
-                                    <span className="opacity-60">...</span>
-                                ) : log.status === 'error' ? (
-                                    <span title={log.message} className="opacity-60">✗</span>
-                                ) : null}
-                                {isActive && <span className="text-[9px] opacity-60">✕</span>}
+                                            ? isActive
+                                                ? 'bg-teal/20 border-teal/40 text-teal ring-1 ring-teal/30 scale-[1.03] shadow-[0_8px_24px_-14px_rgba(0,232,176,0.9)]'
+                                                : 'bg-teal/10 border-teal/20 text-teal hover:bg-teal/20 hover:scale-[1.02] cursor-pointer'
+                                            : log.status === 'searching'
+                                                ? 'bg-accent/10 border-accent/20 text-accent animate-pulse-glow cursor-default'
+                                                : log.status === 'error'
+                                                    ? 'bg-red-500/10 border-red-500/20 text-red-400 cursor-default opacity-70'
+                                                    : 'bg-white/[0.02] border-white/[0.04] text-text-3 opacity-40 cursor-default'
+                                        }`}
+                                >
+                                    <span className="uppercase tracking-widest">{log.name}</span>
+                                    {isDone ? (
+                                        <span className={`font-mono px-1.5 py-0.5 rounded-md text-[10px] ${isActive ? 'bg-teal/20' : 'bg-white/[0.06]'}`}>
+                                            {isActive ? `${count}` : `${count} res`}
+                                        </span>
+                                    ) : log.status === 'searching' ? (
+                                        <span className="opacity-60">...</span>
+                                    ) : log.status === 'error' ? (
+                                        <span title={log.message} className="opacity-60">✗</span>
+                                    ) : null}
+                                    {isActive && <span className="text-[9px] opacity-60">✕</span>}
+                                </button>
+                            );
+                        })}
+                        {providerFilter && (
+                            <button
+                                onClick={() => setProviderFilter(null)}
+                                className="px-3 py-2.5 rounded-xl border border-white/[0.06] text-[11px] text-text-3 hover:text-white hover:bg-white/[0.05] transition-all">
+                                Show all
                             </button>
-                        );
-                    })}
-                    {providerFilter && (
-                        <button
-                            onClick={() => setProviderFilter(null)}
-                            className="px-3 py-2.5 rounded-xl border border-white/[0.06] text-[11px] text-text-3 hover:text-white hover:bg-white/[0.05] transition-all">
-                            Show all
-                        </button>
-                    )}
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -612,13 +642,13 @@ export default function SearchPage() {
                             const isBulkAdding = bulkAddingKey === group.key;
                             const isBulkDone = bulkAddedKeys.has(group.key);
                             return (
-                                <div key={group.key} className="rounded-2xl bg-white/[0.02] border border-accent/10 overflow-hidden">
+                                <div key={group.key} style={{ contentVisibility: 'auto', containIntrinsicSize: '180px' }} className="rounded-2xl bg-gradient-to-br from-white/[0.03] to-white/[0.015] border border-accent/15 overflow-hidden backdrop-blur-sm shadow-[0_16px_35px_-28px_rgba(124,106,255,0.95)]">
                                     {/* Group header — div not button to avoid nested button violation */}
                                     <div
                                         role="button" tabIndex={0}
                                         onClick={() => toggleGroup(group.key)}
                                         onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && toggleGroup(group.key)}
-                                        className="w-full flex items-center gap-4 p-4 hover:bg-white/[0.03] transition-all cursor-pointer select-none">
+                                        className="w-full flex items-center gap-4 p-4 hover:bg-white/[0.04] transition-all cursor-pointer select-none">
                                         {/* Poster thumbnail / skeleton / fallback icon */}
                                         <div className="shrink-0 w-12 h-16 rounded-xl overflow-hidden bg-accent/10 border border-accent/15 flex items-center justify-center">
                                             {posterUrl === 'loading' ? (
@@ -743,9 +773,9 @@ export default function SearchPage() {
                             const flatKey = `flat_${res.id}`;
                             const flatPoster = posters[flatKey];
                             return (
-                                <div key={res.id} className="rounded-2xl bg-white/[0.02] border border-white/[0.04] overflow-hidden transition-all">
+                                <div key={res.id} style={{ contentVisibility: 'auto', containIntrinsicSize: '144px' }} className="rounded-2xl bg-gradient-to-br from-white/[0.03] to-white/[0.015] border border-white/[0.06] overflow-hidden transition-all hover:border-accent/25 hover:shadow-[0_18px_42px_-28px_rgba(124,106,255,0.85)]">
                                     {/* Result Row */}
-                                    <div className="group flex items-center gap-4 p-4 hover:bg-white/[0.03] transition-all">
+                                    <div className="group flex items-center gap-4 p-4 hover:bg-white/[0.045] transition-all">
                                         {/* Poster thumbnail */}
                                         <div className="shrink-0 w-10 h-14 rounded-lg overflow-hidden bg-white/[0.04] border border-white/[0.06] flex items-center justify-center">
                                             {flatPoster === 'loading' ? (

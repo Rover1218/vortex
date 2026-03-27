@@ -1,3 +1,18 @@
+// Global Warning Filter (Silence library-level uTP warnings and system-level warnings during import)
+const originalWarn = console.warn;
+console.warn = (...args) => {
+    if (args[0] && typeof args[0] === 'string' && args[0].includes('uTP')) return;
+    originalWarn.apply(console, args);
+};
+
+// Suppress process-level warnings (like uTP not supported)
+const originalEmitWarning = process.emitWarning;
+process.emitWarning = (warning, ...args) => {
+    if (typeof warning === 'string' && warning.includes('uTP')) return;
+    if (warning && warning.message && warning.message.includes('uTP')) return;
+    originalEmitWarning.call(process, warning, ...args);
+};
+
 import express from 'express';
 import http from 'http';
 import https from 'https';
@@ -8,7 +23,7 @@ import fs from 'fs';
 import os from 'os';
 import zlib from 'zlib';
 import { execSync } from 'child_process';
-import admin from 'firebase-admin';
+// admin import removed for security (proxy approach)
 import WebTorrentImport from 'webtorrent';
 import pt from 'parse-torrent';
 
@@ -16,11 +31,12 @@ const parseTorrent = pt.default || pt;
 
 const WebTorrentModule = WebTorrentImport.default || WebTorrentImport;
 
-// Embedded Firebase credentials (injected at build time as base64)
-// In dev mode this will be undefined; in built exe it will be a base64 string
-const __EMBEDDED_FIREBASE_CREDS__ = typeof process !== 'undefined' && process.env.__FIREBASE_CREDS_B64__
-    ? process.env.__FIREBASE_CREDS_B64__
-    : (typeof globalThis.__FIREBASE_CREDS_B64__ !== 'undefined' ? globalThis.__FIREBASE_CREDS_B64__ : null);
+const VERSION = "0.1.2";
+// For testing locally, it will try localhost:3000 if the Vercel site is not deployed with the proxy yet.
+let PROXY_URL = 'https://vortex-movies.vercel.app/api/sync';
+
+// Security: No longer embedding master keys. Engine uses user's Auth token to talk to Vercel proxy.
+const __EMBEDDED_FIREBASE_CREDS__ = null;
 
 const app = express();
 const server = http.createServer(app);
@@ -52,57 +68,145 @@ async function startServer() {
     app.use(express.json());
 
     // ─── Firebase Admin & Cloud Sync ───
-    let db = null;
+    // ─── Firebase Proxy Setup ───
     let activeUserId = null;
+    let activeUserToken = null; // Store for background syncs
+    let lastSyncErrorStatus = null; // Track sync errors to silence spam
     const AUTH_CACHE_FILE = path.join(DATA_DIR, 'local-auth.json');
+    const AUTH_TOKEN_FILE = path.join(DATA_DIR, 'local-token.json');
 
-    try {
-        let serviceAccount = null;
+    if (fs.existsSync(AUTH_CACHE_FILE)) {
+        activeUserId = JSON.parse(fs.readFileSync(AUTH_CACHE_FILE, 'utf-8')).uid;
+        if (activeUserId) console.log('[System] ✓ Resuming session for UID:', activeUserId);
+    }
+    if (fs.existsSync(AUTH_TOKEN_FILE)) {
+        try { activeUserToken = JSON.parse(fs.readFileSync(AUTH_TOKEN_FILE, 'utf-8')).token; } catch (e) { }
+    }
 
-        // Method 1: Embedded credentials (built exe — injected at build time)
-        if (__EMBEDDED_FIREBASE_CREDS__) {
+    const SYNC_MIN_INTERVAL_MS = {
+        settings: 1000,
+        stats: 15000,
+        torrents: 5000,
+    };
+    const syncQueueState = new Map();
+
+    function getSyncFingerprint(data) {
+        try {
+            return JSON.stringify(data);
+        } catch {
+            return String(Date.now());
+        }
+    }
+
+    async function syncToCloud(type, data) {
+        if (!activeUserToken) return false;
+
+        const trySync = async (url) => {
             try {
-                serviceAccount = JSON.parse(Buffer.from(__EMBEDDED_FIREBASE_CREDS__, 'base64').toString('utf-8'));
-                console.log('[Firebase] Using embedded credentials');
-            } catch (e) {
-                console.warn('[Firebase] Failed to decode embedded credentials:', e.message);
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: activeUserToken, type, data })
+                });
+                return res;
+            } catch (err) {
+                return { ok: false, status: 'error', message: err.message };
             }
+        };
+
+        let response = await trySync(PROXY_URL);
+
+        // 404 Fallback for Local Development
+        if (!response.ok && (response.status === 404 || response.status === 'error')) {
+            const localUrl = 'http://localhost:3000/api/sync';
+            if (process.env.VORTEX_DEBUG) console.log(`[Sync] Primary 404/Error, trying local: ${localUrl}`);
+            const localResponse = await trySync(localUrl);
+            if (localResponse.ok) {
+                if (process.env.VORTEX_DEBUG) console.log(`[Sync] ✓ ${type} synced to LOCAL cloud`);
+                return true;
+            }
+            response = localResponse; // Use local error if both fail
         }
 
-        // Method 2: File-based credentials (dev mode / custom user override)
-        if (!serviceAccount) {
-            const checkPaths = [
-                path.join(process.cwd(), 'vortex-firebase-adminsdk.json'),
-                path.join(RUNTIME_DIR, 'vortex-firebase-adminsdk.json'),
-                path.join(DATA_DIR, 'vortex-firebase-adminsdk.json')
-            ];
-            const serviceAccountPath = checkPaths.find((p) => {
-                try { return fs.existsSync(p); } catch { return false; }
-            });
-            if (serviceAccountPath) {
-                serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf-8'));
-                console.log('[Firebase] Using file-based credentials');
-            }
-        }
-
-        if (serviceAccount) {
-            admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount)
-            });
-            db = admin.firestore();
-            console.log('[Firebase] ✓ Cloud Sync Enabled');
-
-            if (fs.existsSync(AUTH_CACHE_FILE)) {
-                activeUserId = JSON.parse(fs.readFileSync(AUTH_CACHE_FILE, 'utf-8')).uid;
-                if (activeUserId) console.log('[Firebase] ✓ Resuming session for UID:', activeUserId);
-            }
+        if (response.ok) {
+            if (process.env.VORTEX_DEBUG) console.log(`[Sync] ✓ ${type} synced to cloud`);
+            lastSyncErrorStatus = null;
+            return true;
         } else {
-            if (process.env.VORTEX_DEBUG) {
-                console.log('[Firebase] No credentials found. Running in local-only mode.');
+            const errData = response.json ? await response.json().catch(() => ({})) : {};
+            const status = response.status;
+
+            // Silence redundant 401/403 errors
+            if (status === 401 || status === 403) {
+                if (lastSyncErrorStatus === status) return;
+                lastSyncErrorStatus = status;
+                console.error(`[Sync] ⚠ Session expired (${status}). Please refresh your dashboard.`);
+            } else {
+                console.error(`[Sync] ✗ ${type} failed (${status}):`, errData.error || response.message || 'Unknown error');
             }
+            return false;
         }
-    } catch (err) {
-        console.error('[Firebase] Init error:', err.message);
+    }
+
+    function queueSyncToCloud(type, data) {
+        if (!activeUserToken) return;
+
+        const minInterval = SYNC_MIN_INTERVAL_MS[type] ?? 0;
+        const fingerprint = getSyncFingerprint(data);
+        let state = syncQueueState.get(type);
+
+        if (!state) {
+            state = {
+                timer: null,
+                lastSentAt: 0,
+                lastSentFingerprint: '',
+                pendingData: null,
+                pendingFingerprint: ''
+            };
+            syncQueueState.set(type, state);
+        }
+
+        state.pendingData = data;
+        state.pendingFingerprint = fingerprint;
+
+        if (state.timer) return;
+
+        const scheduleDelay = Math.max(0, minInterval - (Date.now() - state.lastSentAt));
+        const flush = async () => {
+            state.timer = null;
+            if (!state.pendingData) return;
+
+            const payload = state.pendingData;
+            const payloadFingerprint = state.pendingFingerprint;
+            state.pendingData = null;
+            state.pendingFingerprint = '';
+
+            if (payloadFingerprint && payloadFingerprint === state.lastSentFingerprint) return;
+
+            const ok = await syncToCloud(type, payload);
+            if (ok) {
+                state.lastSentAt = Date.now();
+                state.lastSentFingerprint = payloadFingerprint;
+            }
+
+            if (state.pendingData) {
+                const nextDelay = Math.max(0, minInterval - (Date.now() - state.lastSentAt));
+                state.timer = setTimeout(flush, nextDelay);
+            }
+        };
+
+        state.timer = setTimeout(flush, scheduleDelay);
+    }
+
+    async function fetchFromCloud(type) {
+        if (!activeUserToken) return null;
+        try {
+            const res = await fetch(`${PROXY_URL}?token=${encodeURIComponent(activeUserToken)}&type=${type}`);
+            if (res.ok) return await res.json();
+        } catch (err) {
+            if (process.env.VORTEX_DEBUG) console.error(`[Sync] Fetch ${type} failed:`, err.message);
+        }
+        return null;
     }
 
     // ─── Windows Protocol Registration (Auto-Open) ───
@@ -116,7 +220,7 @@ async function startServer() {
                 `reg add "HKCU\\Software\\Classes\\vortex\\shell\\open\\command" /ve /d "\\"${exePath}\\" \\"%1\\"" /f`
             ];
             commands.forEach(cmd => {
-                try { execSync(cmd, { stdio: 'ignore' }); } catch (e) {}
+                try { execSync(cmd, { stdio: 'ignore' }); } catch (e) { }
             });
             console.log('[System] ✓ Magic Launch protocol synced');
         } catch (e) {
@@ -147,43 +251,41 @@ async function startServer() {
     }
     resetIdleTimer();
 
-    // Auth Middleware
+    // Auth Middleware (Simplified for Proxy approach)
     async function verifyUser(req, res, next) {
-        if (!db) return next(); // Fallback to local
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
         const token = authHeader.split('Bearer ')[1];
-        try {
-            const decodedToken = await admin.auth().verifyIdToken(token);
-            req.user = decodedToken;
-            if (activeUserId !== decodedToken.uid) {
-                activeUserId = decodedToken.uid;
-                fs.writeFileSync(AUTH_CACHE_FILE, JSON.stringify({ uid: activeUserId }));
-                console.log('[Firebase] Local engine locked to new UID:', activeUserId);
-            }
-            next();
-        } catch (err) {
-            res.status(401).json({ error: 'Invalid Token' });
-        }
+
+        // In this approach, we trust the frontend token and use it to talk to the Proxy.
+        // The Proxy will do the actual Firebase token verification.
+        activeUserToken = token;
+        fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token }));
+        next();
     }
 
     // Socket.IO Auth Middleware
     io.use(async (socket, next) => {
-        if (!db) return next(); // Fallback to local
         const token = socket.handshake.auth?.token;
         if (!token) return next(new Error('Unauthorized'));
-        try {
-            const decodedToken = await admin.auth().verifyIdToken(token);
-            socket.user = decodedToken;
-            if (activeUserId !== decodedToken.uid) {
-                activeUserId = decodedToken.uid;
-                fs.writeFileSync(AUTH_CACHE_FILE, JSON.stringify({ uid: activeUserId }));
-                console.log('[Firebase] Local engine locked to new UID:', activeUserId);
+        activeUserToken = token;
+        lastSyncErrorStatus = null; // Reset error state on new connection
+        fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token }));
+        // Token just became available for this socket; hydrate cloud settings into engine memory.
+        hydrateSettingsFromCloud('socket-auth').catch(() => { });
+        next();
+    });
+
+    io.on('connection', (socket) => {
+        socket.on('update-token', (data) => {
+            if (data?.token) {
+                if (process.env.VORTEX_DEBUG) console.log('[Engine] Token updated via socket');
+                activeUserToken = data.token;
+                lastSyncErrorStatus = null; // Reset error state
+                fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token: data.token }));
+                hydrateSettingsFromCloud('socket-update-token').catch(() => { });
             }
-            next();
-        } catch (err) {
-            next(new Error('Invalid token'));
-        }
+        });
     });
 
     // ─── Settings ───
@@ -216,26 +318,44 @@ async function startServer() {
     }
 
     let settings = normalizeSettings(DEFAULT_SETTINGS);
+    let settingsHydrateInFlight = false;
+    let lastSettingsHydrateAt = 0;
+
+    async function hydrateSettingsFromCloud(reason = 'manual') {
+        if (!activeUserToken) return false;
+        if (settingsHydrateInFlight) return false;
+        // Avoid excessive cloud reads from repeated token updates.
+        if (Date.now() - lastSettingsHydrateAt < 10000) return false;
+
+        settingsHydrateInFlight = true;
+        try {
+            const cloudSettings = await fetchFromCloud('settings');
+            if (!cloudSettings) return false;
+
+            const nextSettings = normalizeSettings(cloudSettings);
+            const changed = JSON.stringify(nextSettings) !== JSON.stringify(settings);
+            if (changed) {
+                settings = nextSettings;
+                fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+                io.emit('settings-updated', settings);
+                applyBandwidthLimits();
+            }
+
+            lastSettingsHydrateAt = Date.now();
+            if (process.env.VORTEX_DEBUG) {
+                console.log(`[Sync] Settings hydrated from cloud (${reason})${changed ? ' [updated]' : ' [no-change]'}`);
+            }
+            return true;
+        } catch {
+            return false;
+        } finally {
+            settingsHydrateInFlight = false;
+        }
+    }
 
     function loadSettings() {
-        if (db && activeUserId) {
-            db.collection('users').doc(activeUserId).collection('config').doc('settings').get()
-                .then(doc => {
-                    if (doc.exists) {
-                        settings = normalizeSettings(doc.data());
-                        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2)); // Sync local cache
-                        io.emit('settings-updated', settings); // Alert UI instantly
-                    } else {
-                        if (fs.existsSync(SETTINGS_FILE)) {
-                            try {
-                                const saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
-                                settings = normalizeSettings(saved);
-                            } catch { }
-                        }
-                        saveSettings();
-                    }
-                }).catch(console.error);
-        } else {
+        hydrateSettingsFromCloud('startup').then((hydrated) => {
+            if (hydrated) return;
             if (fs.existsSync(SETTINGS_FILE)) {
                 try {
                     const saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
@@ -244,17 +364,13 @@ async function startServer() {
             } else {
                 saveSettings();
             }
-        }
+        });
     }
     function saveSettings() {
         settings = normalizeSettings(settings);
         fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
         if (!fs.existsSync(settings.downloadPath)) fs.mkdirSync(settings.downloadPath, { recursive: true });
-
-        if (db && activeUserId) {
-            db.collection('users').doc(activeUserId).collection('config').doc('settings')
-                .set(settings).catch(console.error);
-        }
+        queueSyncToCloud('settings', settings);
     }
     loadSettings();
 
@@ -274,50 +390,21 @@ async function startServer() {
     }
 
     function loadLifetimeTotals() {
-        if (db && activeUserId) {
-            db.collection('users').doc(activeUserId).collection('config').doc('stats').get()
-                .then(doc => {
-                    if (doc.exists) {
-                        const saved = doc.data();
-                        lifetimeTotals.downloaded = toFiniteNonNegative(saved.downloaded);
-                        lifetimeTotals.seeded = toFiniteNonNegative(saved.seeded);
-                        fs.writeFileSync(STATS_FILE, JSON.stringify(lifetimeTotals, null, 2)); // Sync local cache
-                        io.emit('stats-updated', lifetimeTotals); // Optional: if you have a separate listener
-                    } else {
-                        if (fs.existsSync(STATS_FILE)) {
-                            try {
-                                const saved = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'));
-                                lifetimeTotals.downloaded = toFiniteNonNegative(saved.downloaded);
-                                lifetimeTotals.seeded = toFiniteNonNegative(saved.seeded);
-                            } catch { }
-                        }
-                        saveLifetimeTotals();
-                    }
-                }).catch(console.error);
-        } else {
-            if (fs.existsSync(STATS_FILE)) {
-                try {
-                    const saved = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'));
-                    lifetimeTotals.downloaded = toFiniteNonNegative(saved.downloaded);
-                    lifetimeTotals.seeded = toFiniteNonNegative(saved.seeded);
-                } catch {
-                    lifetimeTotals = { downloaded: 0, seeded: 0 };
-                }
-            } else {
-                saveLifetimeTotals();
-            }
+        if (fs.existsSync(STATS_FILE)) {
+            try {
+                const saved = JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'));
+                lifetimeTotals.downloaded = toFiniteNonNegative(saved.downloaded);
+                lifetimeTotals.seeded = toFiniteNonNegative(saved.seeded);
+            } catch { }
         }
+        // Stats are updated in saveLifetimeTotals
     }
 
     function saveLifetimeTotals() {
         lifetimeTotals.downloaded = toFiniteNonNegative(lifetimeTotals.downloaded);
         lifetimeTotals.seeded = toFiniteNonNegative(lifetimeTotals.seeded);
         fs.writeFileSync(STATS_FILE, JSON.stringify(lifetimeTotals, null, 2));
-
-        if (db && activeUserId) {
-            db.collection('users').doc(activeUserId).collection('config').doc('stats')
-                .set(lifetimeTotals).catch(console.error);
-        }
+        queueSyncToCloud('stats', lifetimeTotals);
     }
 
     function resolveUploaded(downloaded, uploaded, ratio) {
@@ -375,20 +462,11 @@ async function startServer() {
     }
 
     async function loadSavedTorrents() {
-        if (db && activeUserId) {
-            try {
-                const snapshot = await db.collection('users').doc(activeUserId).collection('torrents').get();
-                if (!snapshot.empty) {
-                    const list = [];
-                    snapshot.forEach(doc => list.push(doc.data()));
-                    fs.writeFileSync(TORRENTS_FILE, JSON.stringify(list, null, 2)); // Cache locally
-                    return list;
-                }
-            } catch (err) {
-                console.error('[Firebase] Failed to load torrents from cloud:', err.message);
-            }
+        const cloudTorrents = await fetchFromCloud('torrents');
+        if (cloudTorrents) {
+            fs.writeFileSync(TORRENTS_FILE, JSON.stringify(cloudTorrents, null, 2));
+            return cloudTorrents;
         }
-        // Fallback to local
         if (fs.existsSync(TORRENTS_FILE)) {
             try { return JSON.parse(fs.readFileSync(TORRENTS_FILE, 'utf-8')); } catch { return []; }
         }
@@ -399,10 +477,9 @@ async function startServer() {
         const list = [];
         for (const t of client.torrents) {
             const name = t.name || namesMap.get(t.infoHash) || getNameFromMagnet(magnetsByHash.get(t.infoHash));
-            if (name) namesMap.set(t.infoHash, name); // keep namesMap current
+            if (name) namesMap.set(t.infoHash, name);
             const uploadedNow = resolveUploaded(t.downloaded || 0, t.uploaded, t.ratio);
             if (t.progress === 1) {
-                // Seeding is active work; persist separately so it can resume after restart.
                 list.push({
                     name,
                     infoHash: t.infoHash,
@@ -437,17 +514,7 @@ async function startServer() {
             });
         }
         fs.writeFileSync(TORRENTS_FILE, JSON.stringify(list, null, 2));
-
-        if (db && activeUserId) {
-            const batch = db.batch();
-            const torrentsRef = db.collection('users').doc(activeUserId).collection('torrents');
-            list.forEach(item => {
-                if (!item.infoHash) return; // Wait for infoHash to be determined
-                const docRef = torrentsRef.doc(String(item.infoHash));
-                batch.set(docRef, item);
-            });
-            batch.commit().catch(err => console.error('[Firebase] Batch save err:', err.message));
-        }
+        queueSyncToCloud('torrents', list);
     }
 
     // ─── Search Engine ───
@@ -459,14 +526,21 @@ async function startServer() {
         'udp://tracker.opentrackr.org:1337/announce',
         'udp://open.tracker.cl:1337/announce',
         'udp://tracker.openbittorrent.com:6969/announce',
-        'udp://tracker.leechers-paradise.org:6969/announce',
+        'udp://open.demonii.com:1337/announce',
+        'udp://tracker.bittor.pw:1337/announce',
+        'udp://tracker.moeking.me:6969/announce',
+        'udp://tracker.cyberia.is:6969/announce',
+        'udp://tracker1.bt.moack.co.kr:80/announce',
+        'udp://tracker2.dler.com:80/announce',
         'udp://tracker.torrent.eu.org:451/announce',
+        'udp://explodie.org:6969/announce',
+        'udp://tracker.uw0.xyz:6969/announce',
+        'udp://opentor.org:2710/announce',
+        'udp://tracker.leechers-paradise.org:6969/announce',
         'udp://tracker.tiny-vps.com:6969/announce',
         'http://tracker.tbp.pm:8080/announce',
         'udp://exodus.desync.com:6969/announce',
         'udp://tracker.internetwarriors.net:1337/announce',
-        'udp://9.rarbg.com:2810/announce',
-        'udp://tracker.dler.org:6969/announce',
         'udp://tracker2.dler.org:80/announce',
         'udp://tracker.ds.is:6969/announce',
         'udp://retracker.lanta-net.ru:2710/announce',
@@ -478,6 +552,44 @@ async function startServer() {
         'udp://tracker.theoks.net:6969/announce',
     ];
     const TPB_TR_QUERY = TPB_TRACKERS.map(t => '&tr=' + encodeURIComponent(t)).join('');
+
+    function mergeTrackers(...trackerLists) {
+        const merged = [];
+        const seen = new Set();
+        for (const list of trackerLists) {
+            for (const raw of (list || [])) {
+                const tracker = String(raw || '').trim();
+                if (!tracker) continue;
+                const key = tracker.toLowerCase();
+                if (seen.has(key)) continue;
+                seen.add(key);
+                merged.push(tracker);
+            }
+        }
+        return merged;
+    }
+
+    function getAnnounceListForMagnet(magnet) {
+        let magnetTrackers = [];
+        try {
+            const parsed = parseTorrent(magnet);
+            if (parsed?.announce && Array.isArray(parsed.announce)) {
+                magnetTrackers = parsed.announce;
+            }
+        } catch {
+            // Ignore parse failures and fall back to our static tracker list.
+        }
+        // Keep the list bounded to avoid excessive tracker churn.
+        return mergeTrackers(magnetTrackers, TPB_TRACKERS).slice(0, 50);
+    }
+
+    function getTorrentAddOptions(magnet, downloadPath) {
+        return {
+            path: downloadPath,
+            announce: getAnnounceListForMagnet(magnet),
+            maxWebConns: 60,
+        };
+    }
 
     function buildMagnet(hash, name) {
         return `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(name)}${TPB_TR_QUERY}`;
@@ -674,18 +786,28 @@ async function startServer() {
         console.warn(`[Network] Ignoring ${key} from environment for engine stability.`);
     }
 
+    const ENGINE_VERBOSE = process.env.VORTEX_DEBUG === '1';
+
     // ─── WebTorrent Client ─── (tuned for 150 Mbps)
     console.log('⏳ Initializing torrent engine...');
     const WebTorrent = WebTorrentModule; // Use the pre-imported module from top of file
     let client;
     try {
         client = new WebTorrent({
-            maxConns: 300,       // default 55 — more peers = faster
-            dht: true,
+            maxConns: 500,       // Allow wider swarm fanout on fast links
+            dht: {
+                bootstrap: [
+                    'router.bittorrent.com:6881',
+                    'router.utorrent.com:6881',
+                    'dht.transmissionbt.com:6881',
+                    'dht.libtorrent.org:25401'
+                ]
+            },
             lsd: true,
             natUpnp: true,
             natPmp: true,
             webSeeds: true,
+            utp: false           // This runtime does not support uTP; force TCP-only transport
         });
     } catch (err) {
         console.warn('[WebTorrent] Primary init failed, retrying with safe defaults:', err.message);
@@ -697,34 +819,79 @@ async function startServer() {
                 natUpnp: false,
                 natPmp: false,
                 webSeeds: true,
+                utp: false
             });
         } catch (retryErr) {
             console.warn('[WebTorrent] Safe init failed, retrying with bare defaults:', retryErr.message);
             client = new WebTorrent();
         }
     }
+    // ─── Torrent Diagnostic Helper ───
+    function attachDiagnosticListeners(torrent) {
+        if (!torrent) return;
+        const getDisplayName = () => torrent.name || namesMap.get(torrent.infoHash) || 'Unknown';
+        const infoHash = torrent.infoHash;
+        console.log(`[Engine] Attaching diagnostics: ${getDisplayName()} (${infoHash})`);
+        const seenWireAddrs = new Set();
+        let peerLogCount = 0;
+
+        torrent.on('warning', (w) => {
+            // Silence common cosmetic warnings if we are already discovering peers or have metadata
+            const isTrackerIssue = w.message.includes('tracker') && (w.message.includes('timeout') || w.message.includes('ENOTFOUND'));
+            const isDhtIssue = w.message.includes('No nodes to query');
+
+            if (isTrackerIssue || isDhtIssue) {
+                // If we have any wires connected or metadata resolved, hide the noise
+                if (torrent.wires.length > 0 || torrent.name) return;
+            }
+            console.warn(`[Engine] Torrent warning (${getDisplayName() || infoHash}):`, w.message);
+        });
+        torrent.on('error', (e) => console.error(`[Engine] Torrent error (${getDisplayName() || infoHash}):`, e.message));
+        torrent.on('metadata', () => console.log(`[Engine] ✓ Metadata fetched: ${torrent.name}`));
+
+        torrent.on('peer', (addr) => {
+            // Peer events can be extremely noisy; keep only a small sample unless debug is enabled.
+            peerLogCount += 1;
+            if (ENGINE_VERBOSE || peerLogCount <= 5 || peerLogCount % 50 === 0) {
+                console.log(`[Engine] Peer found for ${torrent.name || infoHash}: ${addr}`);
+            }
+        });
+
+        torrent.on('wire', (wire, addr) => {
+            if (!ENGINE_VERBOSE && seenWireAddrs.has(addr)) return;
+            seenWireAddrs.add(addr);
+            console.log(`[Engine] Connected to wire: ${addr} for ${torrent.name || infoHash}`);
+        });
+
+        // Trackers are already handled in client.add({ announce: TPB_TRACKERS })
+    }
+
     client.on('error', (err) => console.error('WebTorrent error:', err.message));
+    client.on('torrent', (torrent) => {
+        // This still fires when ready, but we use attachDiagnosticListeners for early setup
+        console.log(`[Engine] Torrent ready: ${torrent.name} (${torrent.infoHash})`);
+    });
 
     // Apply bandwidth limits — also propagates to currently active torrent wires
     function applyBandwidthLimits() {
+        // -1 means unlimited in our internal logic
         const dlRate = settings.globalDownloadLimit > 0 ? Math.round(settings.globalDownloadLimit * 1024 * 1024) : -1;
         const ulRate = settings.globalUploadLimit > 0 ? Math.round(settings.globalUploadLimit * 1024 * 1024) : -1;
 
-        // Client-level throttle affects new wires
-        try { client.throttleDownload(dlRate); } catch { }
-        try { client.throttleUpload(ulRate); } catch { }
+        // Use Infinity for unlimited to avoid throttle-group issues
+        const dlRateSafe = dlRate < 0 ? Infinity : dlRate;
+        const ulRateSafe = ulRate < 0 ? Infinity : ulRate;
 
-        // Propagate immediately to all currently open wires
+        try { client.throttleDownload(dlRateSafe); } catch { }
+        try { client.throttleUpload(ulRateSafe); } catch { }
+
+        // Propagate to existing wires
         for (const torrent of client.torrents) {
             for (const wire of (torrent.wires || [])) {
                 try {
-                    // throttle-group sets rate via these internal refs
-                    if (wire._downloadThrottle?.setRate) wire._downloadThrottle.setRate(dlRate < 0 ? Infinity : dlRate);
-                    if (wire._uploadThrottle?.setRate) wire._uploadThrottle.setRate(ulRate < 0 ? Infinity : ulRate);
-                    // fallback: direct property
-                    if (wire.downloadThrottle != null) wire.downloadThrottle = dlRate < 0 ? 0 : dlRate;
-                    if (wire.uploadThrottle != null) wire.uploadThrottle = ulRate < 0 ? 0 : ulRate;
-                } catch { /* ignore per-wire errors */ }
+                    if (wire._downloadThrottle?.setRate) wire._downloadThrottle.setRate(dlRateSafe);
+                    if (wire._uploadThrottle?.setRate) wire._uploadThrottle.setRate(ulRateSafe);
+                } catch { }
             }
         }
 
@@ -762,7 +929,7 @@ async function startServer() {
                     if (st.infoHash) magnetsByHash.set(st.infoHash, st.magnet);
                     if (st.infoHash && st.addedAt) addedAtMap.set(st.infoHash, st.addedAt);
                     try {
-                        client.add(st.magnet, { path: settings.downloadPath, announce: TPB_TRACKERS, maxWebConns: 20 }, (torrent) => {
+                        const torrent = client.add(st.magnet, getTorrentAddOptions(st.magnet, settings.downloadPath), (torrent) => {
                             const resolvedName = torrent.name || st.name || getNameFromMagnet(st.magnet);
                             if (resolvedName) namesMap.set(torrent.infoHash, resolvedName);
                             console.log(`  ▶ Restored seeding: ${resolvedName || torrent.infoHash}`);
@@ -771,6 +938,7 @@ async function startServer() {
                                 if (!addedAtMap.has(torrent.infoHash)) addedAtMap.set(torrent.infoHash, st.addedAt || Date.now());
                             }
                         });
+                        attachDiagnosticListeners(torrent);
                     } catch (err) {
                         console.error(`  ✗ Failed to restore seeding: ${err.message}`);
                         completedTorrents.set(st.infoHash, {
@@ -796,8 +964,7 @@ async function startServer() {
                     if (st.infoHash) magnetsByHash.set(st.infoHash, st.magnet);
                     if (st.infoHash && st.addedAt) addedAtMap.set(st.infoHash, st.addedAt);
                     try {
-                        client.add(st.magnet, { path: settings.downloadPath, announce: TPB_TRACKERS, maxWebConns: 20 }, (torrent) => {
-                            // Use saved name until fresh metadata arrives
+                        const torrent = client.add(st.magnet, getTorrentAddOptions(st.magnet, settings.downloadPath), (torrent) => {
                             const resolvedName = torrent.name || st.name || getNameFromMagnet(st.magnet);
                             if (resolvedName) namesMap.set(torrent.infoHash, resolvedName);
                             console.log(`  ✓ Restored: ${resolvedName || torrent.infoHash}`);
@@ -806,13 +973,14 @@ async function startServer() {
                                 if (!addedAtMap.has(torrent.infoHash)) addedAtMap.set(torrent.infoHash, st.addedAt || Date.now());
                             }
                         });
+                        attachDiagnosticListeners(torrent);
                     } catch (err) { console.error(`  \u2717 Failed: ${err.message}`); }
                 }
             });
 
             // Force an immediate sync to Firestore so local data migrates to the cloud instantly
             setTimeout(() => {
-                if (db && activeUserId) saveTorrentList();
+                if (activeUserId) saveTorrentList();
             }, 2000);
         }
     }).catch(console.error);
@@ -861,7 +1029,8 @@ async function startServer() {
             totalDownloadSpeed: client.downloadSpeed || 0,
             totalUploadSpeed: client.uploadSpeed || 0,
             lifetimeTotals,
-            settings
+            settings,
+            engineVersion: VERSION
         });
     }, 1000);
 
@@ -1517,7 +1686,8 @@ async function startServer() {
         }
 
         try {
-            const torrent = client.add(magnet, { path: settings.downloadPath, announce: TPB_TRACKERS, maxWebConns: 20 });
+            const torrent = client.add(magnet, getTorrentAddOptions(magnet, settings.downloadPath));
+            attachDiagnosticListeners(torrent);
 
             // Ensure infoHash is available
             const infoHash = torrent.infoHash || hash;
@@ -1603,14 +1773,11 @@ async function startServer() {
         pausedTorrents.delete(hash);
         completedTorrents.delete(hash);
         magnetsByHash.delete(hash);
+        syncToCloud('delete_torrent', { infoHash: hash });
         addedAtMap.delete(hash);
         pausedFilesByHash.delete(hash);
 
-        // Explicitly remove from Firebase if connected
-        if (db && activeUserId) {
-            db.collection('users').doc(activeUserId).collection('torrents').doc(String(hash)).delete()
-                .catch(err => console.error('[Firebase] Delete err (remove):', err.message));
-        }
+
 
         if (torrent) {
             client.remove(hash, { destroyStore: false }, () => { saveTorrentList(); res.json({ success: true }); });
@@ -1631,14 +1798,11 @@ async function startServer() {
         pausedTorrents.delete(hash);
         completedTorrents.delete(hash);
         magnetsByHash.delete(hash);
+        syncToCloud('delete_torrent', { infoHash: hash });
         addedAtMap.delete(hash);
         pausedFilesByHash.delete(hash);
 
-        // Explicitly remove from Firebase if connected
-        if (db && activeUserId) {
-            db.collection('users').doc(activeUserId).collection('torrents').doc(String(hash)).delete()
-                .catch(err => console.error('[Firebase] Delete err (delete-files):', err.message));
-        }
+
 
         const doDeleteFiles = () => {
             if (torrentName) {
@@ -1695,7 +1859,7 @@ async function startServer() {
             const magnet = data.magnet || magnetsByHash.get(hash) || `magnet:?xt=urn:btih:${hash}`;
             // Remove from paused AFTER ensuring we can add it
             try {
-                const torrent = client.add(magnet, { path: settings.downloadPath, announce: TPB_TRACKERS, maxWebConns: 20 });
+                const torrent = client.add(magnet, getTorrentAddOptions(magnet, settings.downloadPath));
                 // Now safe to remove from paused map
                 pausedTorrents.delete(hash);
                 if (magnet) magnetsByHash.set(hash, magnet);
@@ -1758,7 +1922,7 @@ async function startServer() {
         if (!magnet) return res.status(400).json({ error: 'No magnet available to start seeding' });
 
         try {
-            const torrent = client.add(magnet, { path: settings.downloadPath, announce: TPB_TRACKERS, maxWebConns: 20 });
+            const torrent = client.add(magnet, getTorrentAddOptions(magnet, settings.downloadPath));
             completedTorrents.delete(hash);
             magnetsByHash.set(hash, magnet);
             torrent.on('metadata', () => {
@@ -2110,12 +2274,45 @@ async function startServer() {
 
     // ─── Subtitles (OpenSubtitles.com REST v2) ───
     const OSUB_UA = 'VortexApp v1.0';
+    const OSUB_AGENT = new https.Agent({ keepAlive: true });
+
+    function isTransientSubtitleError(err) {
+        if (!err) return false;
+        const code = String(err.code || '').toUpperCase();
+        if (['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNREFUSED', 'ENOTFOUND'].includes(code)) return true;
+        const msg = String(err.message || '').toLowerCase();
+        return msg.includes('timeout') || msg.includes('socket hang up') || msg.includes('connection reset');
+    }
+
+    function wait(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function osRequestWithRetry(options, body, maxAttempts = 3) {
+        let lastErr = null;
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            try {
+                return await osRequest(options, body);
+            } catch (err) {
+                lastErr = err;
+                if (!isTransientSubtitleError(err) || attempt >= maxAttempts) {
+                    throw err;
+                }
+                const backoffMs = 250 * attempt;
+                if (process.env.VORTEX_DEBUG) {
+                    console.log(`[Subtitles] transient network error (${err.code || err.message}), retry ${attempt}/${maxAttempts} in ${backoffMs}ms`);
+                }
+                await wait(backoffMs);
+            }
+        }
+        throw lastErr || new Error('subtitle request failed');
+    }
 
     // Shared helper: exchange fileId → temp link → download to disk
     async function downloadSubtitleFile(apiKey, fileId, filename, destFolder) {
         fs.mkdirSync(path.resolve(destFolder), { recursive: true });
         const tokenBody = Buffer.from(JSON.stringify({ file_id: fileId }));
-        const tokenResp = await osRequest({
+        const tokenResp = await osRequestWithRetry({
             hostname: 'api.opensubtitles.com',
             path: '/api/v1/download',
             method: 'POST',
@@ -2149,22 +2346,27 @@ async function startServer() {
     // Generic HTTPS request helper (POST or GET) — follows 301/302 redirects
     function osRequest(options, body, _redirectCount = 0) {
         return new Promise((resolve, reject) => {
-            const req = https.request(options, (res) => {
+            const requestOptions = {
+                ...options,
+                family: 4,
+                agent: OSUB_AGENT,
+            };
+            const req = https.request(requestOptions, (res) => {
                 // Follow redirects (max 5)
                 if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && _redirectCount < 5) {
                     res.resume(); // drain
                     let loc = res.headers.location;
                     // Relative redirect → keep same host
                     if (loc.startsWith('/')) {
-                        loc = `https://${options.hostname}${loc}`;
+                        loc = `https://${requestOptions.hostname}${loc}`;
                     }
                     const u = new URL(loc);
                     const newOpts = {
                         hostname: u.hostname,
                         path: u.pathname + u.search,
-                        method: options.method || 'GET',
-                        headers: options.headers,
-                        timeout: options.timeout || 15000,
+                        method: requestOptions.method || 'GET',
+                        headers: requestOptions.headers,
+                        timeout: requestOptions.timeout || 15000,
                     };
                     osRequest(newOpts, null, _redirectCount + 1).then(resolve).catch(reject);
                     return;
@@ -2230,7 +2432,7 @@ async function startServer() {
 
     async function osSearch(apiKey, params, lang) {
         const qs = new URLSearchParams(params).toString();
-        const r = await osRequest({
+        const r = await osRequestWithRetry({
             hostname: 'api.opensubtitles.com',
             path: `/api/v1/subtitles?${qs}`,
             method: 'GET',
@@ -2248,20 +2450,22 @@ async function startServer() {
     }
 
     app.get('/api/subtitles', async (req, res) => {
-        const query = req.query.name;         // text query (fallback)
-        const filePath = req.query.file;      // full path to video file (hash search)
-        const lang = req.query.lang || 'en';
+        const query = typeof req.query.name === 'string' ? req.query.name : '';         // text query (fallback)
+        const filePath = typeof req.query.file === 'string' ? req.query.file : '';      // full path to video file (hash search)
+        const lang = (typeof req.query.lang === 'string' && req.query.lang.trim()) ? req.query.lang.trim() : 'en';
         if (!query && !filePath) return res.status(400).json({ error: 'name or file required' });
 
         const apiKey = settings.opensubtitlesApiKey;
         if (!apiKey) return res.status(503).json({ error: 'NO_API_KEY', message: 'OpenSubtitles API key not set. Add it in Settings → Subtitles.' });
 
-        try {
-            let exactResults = [];
-            let textResults = [];
+        let exactResults = [];
+        let textResults = [];
+        let hashError = null;
+        let textError = null;
 
-            // ── 1. Hash search (exact match) ─────────────────────────────────────
-            if (filePath) {
+        // ── 1. Hash search (exact match) ─────────────────────────────────────
+        if (filePath) {
+            try {
                 // Safety: path must be within downloadPath
                 if (!path.resolve(filePath).startsWith(path.resolve(settings.downloadPath))) {
                     return res.status(403).json({ error: 'File outside download directory' });
@@ -2278,10 +2482,15 @@ async function startServer() {
                     exactResults = mapOsItems(items.slice(0, 10), lang, true);
                     console.log(`🎯 Hash search for ${path.basename(filePath)}: hash=${hashed.hash} → ${exactResults.length} exact results`);
                 }
+            } catch (e) {
+                hashError = e;
+                console.warn('Subtitle hash search error:', e.code || e.message || String(e));
             }
+        }
 
-            // ── 2. Text search ───────────────────────────────────────────────────
-            if (query) {
+        // ── 2. Text search ───────────────────────────────────────────────────
+        if (query) {
+            try {
                 const items = await osSearch(apiKey, {
                     query,
                     languages: lang,
@@ -2295,13 +2504,27 @@ async function startServer() {
                     return !exactIds.has(String(f.file_id || i.id));
                 });
                 textResults = mapOsItems(unique.slice(0, 20), lang, false);
+            } catch (e) {
+                textError = e;
+                console.warn('Subtitle text search error:', e.code || e.message || String(e));
             }
-
-            res.json([...exactResults, ...textResults]);
-        } catch (e) {
-            console.error('Subtitle search error:', e.message);
-            res.status(500).json({ error: e.message });
         }
+
+        const mergedResults = [...exactResults, ...textResults];
+        if (mergedResults.length > 0 || (!hashError && !textError)) {
+            return res.json(mergedResults);
+        }
+
+        const primaryError = textError || hashError;
+        if (isTransientSubtitleError(primaryError)) {
+            console.warn('Subtitle search transient error:', primaryError.code || primaryError.message);
+            // Keep search UX stable during temporary upstream issues.
+            return res.status(200).json([]);
+        }
+
+        const msg = primaryError?.message || 'subtitle search failed';
+        console.error('Subtitle search error:', msg);
+        return res.status(500).json({ error: msg });
     });
 
     // Download subtitle via OpenSubtitles v2 token endpoint

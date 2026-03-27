@@ -231,20 +231,23 @@ export default function DownloadsPage() {
     const EmptyIcon = activeTab === "Paused" ? IconPauseCircle : activeTab === "Completed" ? IconCheckCircle : IconInbox;
 
     return (
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6 pb-10 relative px-1 sm:px-0 isolate">
+            <div className="pointer-events-none absolute -top-14 left-0 h-72 w-72 rounded-full bg-accent/12 blur-3xl" />
+            <div className="pointer-events-none absolute top-40 right-0 h-80 w-80 rounded-full bg-teal/10 blur-3xl" />
+
             {/* Header */}
-            <div className="flex items-end justify-between">
+            <div className="relative z-10 flex items-end justify-between rounded-3xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] px-6 py-5">
                 <div>
                     <h1 className="text-4xl font-black tracking-tight mb-1">
                         <span className="bg-gradient-to-r from-white to-text-2 bg-clip-text text-transparent">Downloads</span>
                     </h1>
-                    <p className="text-text-3 text-sm">{torrents.length} {torrents.length === 1 ? "task" : "tasks"}</p>
+                    <p className="text-text-3 text-sm">{torrents.length} {torrents.length === 1 ? "task" : "tasks"} currently tracked</p>
                 </div>
             </div>
 
             {/* Speed sparkline + disk usage */}
             {torrents.some(t => t.status === "Downloading" || t.status === "Seeding") && (
-                <div className="rounded-2xl bg-white/[0.02] border border-white/[0.04] px-5 pt-4 pb-3 space-y-3">
+                <div className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] px-5 pt-4 pb-3 space-y-3 backdrop-blur-sm shadow-[0_20px_48px_-30px_rgba(82,133,255,0.55)]">
                     <div className="flex items-center justify-between">
                         <div className="flex gap-5 text-[11px] font-mono">
                             <span className="flex items-center gap-1.5 text-teal"><IconDown /><span className="font-black">{formatSpeed(totalDownloadSpeed)}</span></span>
@@ -277,7 +280,7 @@ export default function DownloadsPage() {
             )}
 
             {/* Tabs */}
-            <div className="flex gap-2">
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-2 sm:p-3 flex gap-2 flex-wrap">
                 {TABS.map(tab => (
                     <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                         className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all ${activeTab === tab.id ? tab.activeClass : `bg-white/[0.02] border-white/[0.06] ${tab.color} hover:bg-white/[0.05]`}`}>
@@ -304,8 +307,8 @@ export default function DownloadsPage() {
                         const isActive = t.status === "Downloading" || t.status === "Seeding"; // has real-time files
 
                         return (
-                            <div key={t.infoHash} className="group rounded-2xl bg-white/[0.02] border border-white/[0.04] hover:border-white/[0.08] transition-all overflow-hidden">
-                                <div className="h-[3px] bg-white/[0.03]">
+                            <div key={t.infoHash} style={{ contentVisibility: 'auto', containIntrinsicSize: '140px' }} className="group rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] hover:border-accent/30 hover:shadow-[0_20px_48px_-28px_rgba(122,106,255,0.85)] transition-all overflow-hidden">
+                                <div className="h-[3px] bg-white/[0.05]">
                                     <div className={`h-full bg-gradient-to-r ${barGradient} transition-all duration-700`} style={{ width: `${Math.min(progress, 100)}%` }} />
                                 </div>
                                 <div className="p-5">
@@ -335,7 +338,7 @@ export default function DownloadsPage() {
                                                 {/* Files drawer button — only for active downloads */}
                                                 {isActive && (
                                                     <button onClick={() => openDrawer(t.infoHash)}
-                                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/[0.04] text-text-3 hover:text-white hover:bg-white/[0.08] border border-white/[0.06] transition-all"
+                                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/[0.05] text-text-3 hover:text-white hover:bg-white/[0.11] border border-white/[0.08] transition-all"
                                                         title="View files">
                                                         <IconFiles />
                                                     </button>
@@ -368,7 +371,7 @@ export default function DownloadsPage() {
                                                     </div>
                                                 ) : (
                                                     <button onClick={() => setConfirmDelete(t.infoHash)}
-                                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/[0.03] text-text-3 hover:text-red-400 hover:bg-red-500/10 border border-white/[0.04] transition-all"
+                                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/[0.04] text-text-3 hover:text-red-400 hover:bg-red-500/10 border border-white/[0.07] transition-all"
                                                         title="Delete"><IconTrash /></button>
                                                 )}
                                             </div>
@@ -379,7 +382,7 @@ export default function DownloadsPage() {
                         );
                     })
                 ) : (
-                    <div className="py-20 text-center rounded-3xl bg-white/[0.02] border border-dashed border-white/[0.06]">
+                    <div className="py-20 text-center rounded-3xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-dashed border-white/[0.1]">
                         <div className="flex justify-center mb-3 opacity-20 text-text-3"><EmptyIcon /></div>
                         <p className="text-text-3 text-sm">{activeTab === "All" ? "No downloads yet" : `No ${activeTab.toLowerCase()} torrents`}</p>
                     </div>

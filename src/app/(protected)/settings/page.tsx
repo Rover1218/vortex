@@ -67,8 +67,11 @@ export default function SettingsPage() {
     }
 
     return (
-        <div className="max-w-3xl mx-auto space-y-8">
-            <div className="flex items-center justify-between">
+        <div className="max-w-4xl mx-auto space-y-8 pb-10 relative">
+            <div className="pointer-events-none absolute -top-10 left-[-12%] h-64 w-64 rounded-full bg-accent/10 blur-3xl" />
+            <div className="pointer-events-none absolute top-52 right-[-10%] h-72 w-72 rounded-full bg-teal/8 blur-3xl" />
+
+            <div className="relative z-10 flex items-center justify-between rounded-3xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] px-6 py-5">
                 <div>
                     <h1 className="text-4xl font-black tracking-tight mb-1">
                         <span className="bg-gradient-to-r from-white to-text-2 bg-clip-text text-transparent">Settings</span>
@@ -77,7 +80,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <button onClick={() => setLocalSettings(settings)} className="px-5 py-2.5 text-text-3 hover:text-white text-sm transition-colors">Discard</button>
+                    <button onClick={() => setLocalSettings(settings)} className="px-5 py-2.5 text-text-3 hover:text-white text-sm transition-colors rounded-xl hover:bg-white/[0.05]">Discard</button>
                     <button onClick={handleSave} disabled={isSaving}
                         className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all active:scale-95 ${saved ? 'bg-teal/20 text-teal border border-teal/20' : 'bg-gradient-to-r from-accent to-accent/80 text-white hover:brightness-110 hover:shadow-lg hover:shadow-accent/20'
                             } disabled:opacity-50`}>
@@ -88,7 +91,7 @@ export default function SettingsPage() {
 
             <div className="space-y-4">
                 {/* Download Location */}
-                <section className="rounded-2xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+                <section className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] overflow-hidden backdrop-blur-sm">
                     <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/10 flex items-center justify-center text-sm">📂</div>
                         <div>
@@ -112,7 +115,7 @@ export default function SettingsPage() {
                 </section>
 
                 {/* Bandwidth */}
-                <section className="rounded-2xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+                <section className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] overflow-hidden backdrop-blur-sm">
                     <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-teal/10 border border-teal/10 flex items-center justify-center text-sm">🌐</div>
                         <div>
@@ -147,7 +150,7 @@ export default function SettingsPage() {
                 </section>
 
                 {/* Subtitles */}
-                <section className="rounded-2xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+                <section className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] overflow-hidden backdrop-blur-sm">
                     <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/10 flex items-center justify-center text-sm">CC</div>
                         <div>
@@ -220,7 +223,7 @@ export default function SettingsPage() {
                 </section>
 
                 {/* Posters info */}
-                <section className="rounded-2xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+                <section className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] overflow-hidden backdrop-blur-sm">
                     <div className="px-6 py-4 border-b border-white/[0.04] flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-teal/10 border border-teal/10 flex items-center justify-center text-xs font-black text-teal">🎬</div>
                         <div>
@@ -239,7 +242,7 @@ export default function SettingsPage() {
                                 className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-white placeholder-text-3 focus:outline-none focus:border-teal/40 font-mono text-sm transition-all"
                             />
                             <p className="text-[11px] text-text-3 leading-relaxed mt-2">
-                                Free API key from <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" className="text-teal hover:text-teal/80 underline underline-offset-2">themoviedb.org</a>. Highly recommended for the best quality posters! <br/>
+                                Free API key from <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" className="text-teal hover:text-teal/80 underline underline-offset-2">themoviedb.org</a>. Highly recommended for the best quality posters! <br />
                                 If left blank, Vortex will gracefully fall back to free providers (TVmaze, Jikan, Kitsu).
                             </p>
                         </div>

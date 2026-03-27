@@ -127,7 +127,7 @@ export default function LibraryPage() {
             if (errCode === 'NO_API_KEY') {
                 setSubMsg({ type: "err", text: "\u26A0\uFE0F No API key configured. Go to Settings \u2192 Subtitles and add your free OpenSubtitles.com API key." });
             } else {
-                setSubMsg({ type: "err", text: e.response?.data?.message || "Search failed. Check server connection." });
+                setSubMsg({ type: "err", text: e.response?.data?.message || e.response?.data?.error || e.message || "Search failed. Check server connection." });
             }
         }
         setSubLoading(false);
@@ -333,9 +333,12 @@ export default function LibraryPage() {
     }, [library, sep]);
 
     return (
-        <div className="max-w-5xl mx-auto space-y-8">
+        <div className="max-w-6xl mx-auto space-y-8 pb-10 relative px-1 sm:px-0 overflow-x-hidden isolate">
+            <div className="pointer-events-none absolute -top-16 left-0 h-72 w-72 rounded-full bg-accent/12 blur-3xl" />
+            <div className="pointer-events-none absolute top-40 right-0 h-72 w-72 rounded-full bg-teal/10 blur-3xl" />
+
             {/* Header */}
-            <div className="flex items-end justify-between">
+            <div className="relative z-10 flex items-end justify-between rounded-3xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] px-6 py-5">
                 <div>
                     <h1 className="text-4xl font-black tracking-tight mb-1">
                         <span className="bg-gradient-to-r from-white to-text-2 bg-clip-text text-transparent">Library</span>
@@ -364,15 +367,15 @@ export default function LibraryPage() {
             {!loading && topLevel.length > 0 && (
                 <div className="space-y-3">
                     <div className="grid grid-cols-3 gap-3">
-                        <div className="rounded-2xl bg-gradient-to-br from-teal/10 to-transparent border border-teal/10 p-4">
+                        <div className="rounded-2xl bg-gradient-to-br from-teal/12 to-transparent border border-teal/15 p-4">
                             <div className="text-[10px] font-bold text-teal/60 uppercase tracking-widest mb-1">Total Files</div>
                             <div className="text-2xl font-black text-white">{library.filter(i => !i.isDir).length}</div>
                         </div>
-                        <div className="rounded-2xl bg-gradient-to-br from-accent/10 to-transparent border border-accent/10 p-4">
+                        <div className="rounded-2xl bg-gradient-to-br from-accent/12 to-transparent border border-accent/15 p-4">
                             <div className="text-[10px] font-bold text-accent/60 uppercase tracking-widest mb-1">Videos</div>
                             <div className="text-2xl font-black text-white">{videoCount}</div>
                         </div>
-                        <div className="rounded-2xl bg-gradient-to-br from-purple-500/10 to-transparent border border-purple-500/10 p-4">
+                        <div className="rounded-2xl bg-gradient-to-br from-purple-500/12 to-transparent border border-purple-500/15 p-4">
                             <div className="text-[10px] font-bold text-purple-400/60 uppercase tracking-widest mb-1">Total Size</div>
                             <div className="text-2xl font-black text-white">{formatSize(totalSize)}</div>
                         </div>
@@ -382,7 +385,7 @@ export default function LibraryPage() {
                         const freePct = 100 - usedPct;
                         const fmtD = (b: number) => { const k = 1024, u = ["B", "KB", "MB", "GB", "TB"]; const i = Math.floor(Math.log(Math.max(b, 1)) / Math.log(k)); return (b / Math.pow(k, i)).toFixed(1) + " " + u[i]; };
                         return (
-                            <div className="rounded-2xl bg-white/[0.02] border border-white/[0.04] px-5 py-4 space-y-2">
+                            <div className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] px-5 py-4 space-y-2 backdrop-blur-sm shadow-[0_20px_48px_-30px_rgba(82,133,255,0.45)]">
                                 <div className="flex justify-between items-baseline">
                                     <span className="text-[10px] font-bold text-text-3/60 uppercase tracking-widest">Disk Usage</span>
                                     <div className="flex items-baseline gap-2 text-[11px] font-mono">
@@ -404,7 +407,7 @@ export default function LibraryPage() {
             )}
 
             {/* Search + Sort */}
-            <div className="flex gap-3">
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3 flex gap-3 backdrop-blur-sm">
                 <div className="relative flex-1">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm pointer-events-none">
                         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="5.5" cy="5.5" r="4" /><path d="M9 9l2.5 2.5" /></svg>
@@ -450,7 +453,7 @@ export default function LibraryPage() {
 
             {/* Category Tabs */}
             {!loading && categories.length > 1 && (
-                <div className="flex gap-2 flex-wrap">
+                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-2 sm:p-3 flex gap-2 flex-wrap">
                     {categories.map(cat => {
                         const count = cat === "All" ? topLevel.length : topLevel.filter(i => i.category === cat).length;
                         const isActive = activeCategory === cat;
@@ -488,7 +491,7 @@ export default function LibraryPage() {
                     {filtered.map((item, idx) => {
                         const dlStatus = getTorrentStatus(item.name);
                         return (
-                            <div key={idx} className={`group rounded-2xl bg-white/[0.02] border hover:bg-white/[0.04] transition-all flex flex-col gap-0 overflow-hidden ${dlStatus.status === 'completed' ? 'border-teal/15' : dlStatus.status === 'downloading' ? 'border-accent/15' : 'border-white/[0.04] hover:border-white/[0.08]'}`}>
+                            <div key={idx} style={{ contentVisibility: 'auto', containIntrinsicSize: '260px' }} className={`group rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border hover:bg-white/[0.05] transition-all flex flex-col gap-0 overflow-hidden ${dlStatus.status === 'completed' ? 'border-teal/15' : dlStatus.status === 'downloading' ? 'border-accent/15' : 'border-white/[0.08] hover:border-white/[0.14]'} hover:shadow-[0_20px_48px_-28px_rgba(122,106,255,0.72)]`}>
                                 {/* Poster or skeleton or icon banner */}
                                 {(item.category === 'Video' || item.isDir) && posters[item.name] === 'loading' ? (
                                     <div className="w-full aspect-[2/3] bg-white/[0.04] animate-pulse rounded-t-xl flex items-center justify-center">
@@ -585,7 +588,7 @@ export default function LibraryPage() {
                     {filtered.map((item, idx) => {
                         const dlStatus = getTorrentStatus(item.name);
                         return (
-                            <div key={idx} className={`group flex items-center gap-4 px-5 py-3 rounded-xl bg-white/[0.02] border hover:bg-white/[0.04] transition-all ${dlStatus.status === 'completed' ? 'border-teal/15 hover:border-teal/25' : dlStatus.status === 'downloading' ? 'border-accent/15 hover:border-accent/25' : 'border-white/[0.04] hover:border-white/[0.08]'}`}>
+                            <div key={idx} style={{ contentVisibility: 'auto', containIntrinsicSize: '76px' }} className={`group flex items-center gap-4 px-5 py-3 rounded-xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border hover:bg-white/[0.05] transition-all ${dlStatus.status === 'completed' ? 'border-teal/15 hover:border-teal/25' : dlStatus.status === 'downloading' ? 'border-accent/15 hover:border-accent/25' : 'border-white/[0.08] hover:border-white/[0.14]'}`}>
                                 <span className="text-xl shrink-0">{CATEGORY_ICONS[item.category] || "📄"}</span>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium text-white truncate">{item.name}</p>

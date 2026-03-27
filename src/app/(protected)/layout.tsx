@@ -42,9 +42,9 @@ export default function ProtectedLayout({
 
   return (
     <TorrentProvider>
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen overflow-x-hidden">
         <Sidebar />
-        <main className="flex-1 ml-60 h-screen overflow-y-auto px-8 py-6 relative">
+        <main className="flex-1 ml-60 h-screen overflow-y-scroll px-8 py-6 relative">
           {children}
           <EngineStatusOverlay />
         </main>

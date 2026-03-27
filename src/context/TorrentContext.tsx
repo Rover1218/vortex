@@ -3,6 +3,8 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
+import { auth } from "@/lib/firebase";
+import { onIdTokenChanged } from "firebase/auth";
 import { useAuth } from './AuthContext';
 
 // ─── Types ───
@@ -60,6 +62,7 @@ interface TorrentContextType {
     fetchLibrary: () => Promise<void>;
     browseFolders: (folderPath: string) => Promise<BrowseResult>;
     isEngineConnected: boolean;
+    engineVersion: string | null;
 }
 
 const TorrentContext = createContext<TorrentContextType | undefined>(undefined);
@@ -86,6 +89,7 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
     const searchAbortRef = useRef<AbortController | null>(null);
 
     const [isEngineConnected, setIsEngineConnected] = useState(true);
+    const [engineVersion, setEngineVersion] = useState<string | null>(null);
 
     const { user } = useAuth();
 
@@ -105,10 +109,22 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
         let socket: any = null;
         user.getIdToken().then(token => {
             socket = io(API_BASE, { auth: { token } });
-            
-            socket.on('connect', () => setIsEngineConnected(true));
+
+            socket.on('connect', () => {
+                setIsEngineConnected(true);
+                // Push fresh token immediately on connect
+                user.getIdToken().then(t => socket.emit('update-token', { token: t }));
+            });
             socket.on('disconnect', () => setIsEngineConnected(false));
             socket.on('connect_error', () => setIsEngineConnected(false));
+
+            // Auto-refresh token for background engine sync
+            const unsubscribeToken = onIdTokenChanged(auth, async (newUser) => {
+                if (newUser && socket?.connected) {
+                    const freshToken = await newUser.getIdToken();
+                    socket.emit('update-token', { token: freshToken });
+                }
+            });
 
             socket.on('torrent-status', (data: any) => {
                 setTorrents(data.torrents || []);
@@ -117,6 +133,7 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
                 setLifetimeDownloaded(data.lifetimeTotals?.downloaded || 0);
                 setLifetimeSeeded(data.lifetimeTotals?.seeded || 0);
                 if (data.settings) setSettings(data.settings);
+                if (data.engineVersion) setEngineVersion(data.engineVersion);
             });
 
             socket.on('settings-updated', (data: any) => setSettings(data));
@@ -204,8 +221,12 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const addMagnet = async (magnet: string) => {
-        try { await axios.post(`${API_BASE}/api/torrents`, { magnet }); }
-        catch (err) { console.error('Failed to add magnet:', err); }
+        try {
+            await axios.post(`${API_BASE}/api/torrents`, { magnet });
+        } catch (err) {
+            console.error('Failed to add magnet:', err);
+            throw err;
+        }
     };
 
     const removeTorrent = async (infoHash: string) => {
@@ -286,12 +307,13 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
             settings, diskInfo, library,
             searchResults, searchLogs, searchQuery, searchCategory, isSearching,
             searchPosters, setSearchPosters,
-            setSearchQuery, setSearchCategory, doSearch, cancelSearch,        clearSearch,
-        getSuggestions,
-        addMagnet, removeTorrent, pauseTorrent, resumeTorrent,
-        startSeeding, setTorrentFileSelection, stopSeeding, deleteWithFiles,
-        updateSettings, fetchDiskInfo, fetchLibrary, browseFolders,
-        isEngineConnected
+            setSearchQuery, setSearchCategory, doSearch, cancelSearch, clearSearch,
+            getSuggestions,
+            addMagnet, removeTorrent, pauseTorrent, resumeTorrent,
+            startSeeding, setTorrentFileSelection, stopSeeding, deleteWithFiles,
+            updateSettings, fetchDiskInfo, fetchLibrary, browseFolders,
+            isEngineConnected,
+            engineVersion
         }}>
             {children}
         </TorrentContext.Provider>

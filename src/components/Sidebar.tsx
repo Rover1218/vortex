@@ -52,26 +52,26 @@ export default function Sidebar() {
   const totalSeededAll = lifetimeSeeded;
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-60 bg-[#08081a]/90 backdrop-blur-xl border-r border-white/[0.04] flex flex-col z-50">
+    <aside className="fixed left-0 top-0 h-screen w-60 bg-gradient-to-b from-[#090922]/95 via-[#09091f]/94 to-[#07071a]/94 backdrop-blur-xl border-r border-white/[0.06] flex flex-col z-50">
       {/* Logo */}
-      <div className="p-6 pb-2">
+      <div className="p-6 pb-2 border-b border-white/[0.04]">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-accent to-teal flex items-center justify-center text-white text-sm font-black">V</div>
+          <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-accent to-teal flex items-center justify-center text-white text-sm font-black shadow-[0_12px_30px_-12px_rgba(109,98,255,0.85)]">V</div>
           <span className="text-xl font-black tracking-tight text-white">Vortex</span>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 px-3 py-4 space-y-1.5">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href || (item.href === '/search' && pathname === '/');
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium relative group ${isActive
-                ? "bg-gradient-to-r from-accent/15 to-transparent text-white"
-                : "text-text-2 hover:text-white hover:bg-white/[0.04]"
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium relative group border ${isActive
+                ? "bg-gradient-to-r from-accent/18 to-accent/5 text-white border-accent/25 shadow-[0_10px_30px_-18px_rgba(118,105,255,0.9)]"
+                : "text-text-2 border-white/[0.02] hover:text-white hover:bg-white/[0.04] hover:border-white/[0.08]"
                 }`}
             >
               {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-accent rounded-r-full" />}
@@ -87,7 +87,7 @@ export default function Sidebar() {
 
       {/* Live speed indicator */}
       {totalDownloadSpeed > 0 && (
-        <div className="mx-3 mb-3 p-3 bg-accent/5 rounded-xl border border-accent/10">
+        <div className="mx-3 mb-3 p-3 bg-accent/6 rounded-xl border border-accent/12">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-teal animate-pulse-glow" />
             <span className="text-[10px] font-bold text-text-3 uppercase tracking-wider">Live</span>
@@ -97,7 +97,7 @@ export default function Sidebar() {
       )}
 
       {/* Universal totals */}
-      <div className="mx-3 mb-3 p-3 bg-white/[0.03] rounded-xl border border-white/[0.04]">
+      <div className="mx-3 mb-3 p-3 bg-white/[0.04] rounded-xl border border-white/[0.06]">
         <div className="text-[10px] text-text-3 font-bold uppercase tracking-wider mb-2">Totals</div>
         <div className="space-y-1.5 text-xs font-mono">
           <div className="flex items-center justify-between gap-2">
@@ -112,7 +112,7 @@ export default function Sidebar() {
       </div>
 
       {/* Storage */}
-      <div className="mx-3 mb-3 p-4 bg-white/[0.03] rounded-2xl border border-white/[0.04]">
+      <div className="mx-3 mb-3 p-4 bg-white/[0.04] rounded-2xl border border-white/[0.06]">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[10px] text-text-3 font-bold uppercase tracking-wider">Storage</span>
           <span className="text-[10px] text-text-3 font-mono">{usedPercent}%</span>
@@ -133,7 +133,7 @@ export default function Sidebar() {
 
       {/* User Profile + Logout */}
       {user && (
-        <div className="mx-3 mb-4 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.04]">
+        <div className="mx-3 mb-4 p-3 rounded-2xl bg-white/[0.04] border border-white/[0.06]">
           <div className="flex items-center gap-3 mb-3">
             {user.photoURL ? (
               <Image src={user.photoURL} alt="" width={32} height={32} className="rounded-full ring-1 ring-white/10" referrerPolicy="no-referrer" unoptimized />
@@ -152,7 +152,7 @@ export default function Sidebar() {
             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-text-3 hover:text-red-400 bg-white/[0.02] hover:bg-red-500/10 border border-white/[0.04] hover:border-red-500/20 transition-all duration-200"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
             </svg>
             Sign Out
           </button>

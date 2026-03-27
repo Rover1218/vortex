@@ -13,14 +13,9 @@ async function build() {
 
     if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-    // 1. Get Firebase Credentials
-    let firebaseCredsB64 = '';
-    if (fs.existsSync(SERVICE_ACCOUNT_PATH)) {
-        firebaseCredsB64 = fs.readFileSync(SERVICE_ACCOUNT_PATH).toString('base64');
-        console.log('✅ Firebase credentials found and encoded.');
-    } else {
-        console.warn('⚠️ No firebase-adminsdk.json found. Engine will run in local-only mode.');
-    }
+    // 1. Firebase Credentials are now handled by the Vercel Proxy (src/app/api/sync/route.ts)
+    // No longer embedding service accounts in the client binary for security.
+    console.log('🛡️ Security: Skipping Firebase credential embedding (Proxy mode active).');
 
     // 2. Bundle with esbuild (bundle MOST things, externalize only native/problematic ones)
     console.log('📦 Bundling server.mjs...');
@@ -33,7 +28,7 @@ async function build() {
         format: 'cjs',
         external: ['fsevents', 'node-gyp-build'],
         define: {
-            'process.env.__FIREBASE_CREDS_B64__': JSON.stringify(firebaseCredsB64),
+            'process.env.VORTEX_PROD': 'true',
         },
         minify: true,
         sourcemap: false,

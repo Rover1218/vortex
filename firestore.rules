@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isValidSettingsDoc() {
+      return request.resource.data.keys().hasAll([
+          'downloadPath',
+          'globalDownloadLimit',
+          'globalUploadLimit',
+          'opensubtitlesApiKey',
+          'tmdbApiKey',
+          'autoSubtitle',
+          'subtitleLang'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'downloadPath',
+          'globalDownloadLimit',
+          'globalUploadLimit',
+          'opensubtitlesApiKey',
+          'tmdbApiKey',
+          'autoSubtitle',
+          'subtitleLang'
+        ])
+        && request.resource.data.downloadPath is string
+        && request.resource.data.downloadPath.size() > 0
+        && request.resource.data.downloadPath.size() <= 512
+        && request.resource.data.globalDownloadLimit is number
+        && request.resource.data.globalDownloadLimit >= 0
+        && request.resource.data.globalUploadLimit is number
+        && request.resource.data.globalUploadLimit >= 0
+        && request.resource.data.opensubtitlesApiKey is string
+        && request.resource.data.opensubtitlesApiKey.matches('^[^\\r\\n]{0,256}$')
+        && request.resource.data.tmdbApiKey is string
+        && request.resource.data.tmdbApiKey.matches('^[^\\r\\n]{0,128}$')
+        && request.resource.data.autoSubtitle is bool
+        && request.resource.data.subtitleLang is string
+        && request.resource.data.subtitleLang.matches('^[A-Za-z-]{2,16}$');
+    }
+
+    function isValidStatsDoc() {
+      return request.resource.data.keys().hasOnly(['downloaded', 'seeded'])
+        && request.resource.data.downloaded is number
+        && request.resource.data.downloaded >= 0
+        && request.resource.data.seeded is number
+        && request.resource.data.seeded >= 0;
+    }
+
+    match /users/{userId} {
+      // Allow the user to read/write their own data
+      // This applies to the proxy (Vercel) which uses Auth tokens to communicate
+      allow read, write: if isOwner(userId);
+      
+      match /config/{documentId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId)
+          && (
+            (documentId == 'settings' && isValidSettingsDoc())
+            || (documentId == 'stats' && isValidStatsDoc())
+          );
+      }
+      
+      match /torrents/{torrentId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}
