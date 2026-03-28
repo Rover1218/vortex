@@ -1,7 +1,8 @@
 "use client";
 
 import { useTorrents } from "@/context/TorrentContext";
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import RatioCoach from "@/components/RatioCoach";
+import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import axios from "axios";
 
 const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || "http://localhost:3001";
@@ -46,56 +47,76 @@ function normalizeTorrentFiles(next: TorrentFile[], prev: TorrentFile[]): Torren
     return changed ? merged : prev;
 }
 
-const IconDown = () => (
+const IconDown = memo(() => (
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 1v7M2 6l3 3 3-3" /></svg>
-);
-const IconUp = () => (
+));
+IconDown.displayName = "IconDown";
+
+const IconUp = memo(() => (
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 9V2M2 4l3-3 3 3" /></svg>
-);
-const IconPlay = () => (
+));
+IconUp.displayName = "IconUp";
+
+const IconPlay = memo(() => (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2l7 4-7 4V2z" /></svg>
-);
-const IconPause = () => (
+));
+IconPlay.displayName = "IconPlay";
+
+const IconPause = memo(() => (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="2" width="3" height="8" rx="1" /><rect x="7" y="2" width="3" height="8" rx="1" /></svg>
-);
-const IconStop = () => (
+));
+IconPause.displayName = "IconPause";
+
+const IconStop = memo(() => (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="2" width="8" height="8" rx="1.5" /></svg>
-);
-const IconTrash = () => (
+));
+IconStop.displayName = "IconStop";
+
+const IconTrash = memo(() => (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2 3.5h9M4.5 3.5V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5v1M5 6v3.5M8 6v3.5M3 3.5l.7 7a.5.5 0 00.5.5h4.6a.5.5 0 00.5-.5l.7-7" />
     </svg>
-);
-const IconFiles = () => (
+));
+IconTrash.displayName = "IconTrash";
+
+const IconFiles = memo(() => (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
         <rect x="2" y="1.5" width="7" height="9" rx="1" />
         <path d="M4 4h3M4 6h3M4 8h2" />
         <rect x="4" y="3.5" width="5" height="7" rx="1" fill="currentColor" fillOpacity="0.08" stroke="none" />
     </svg>
-);
-const IconInbox = () => (
+));
+IconFiles.displayName = "IconFiles";
+
+const IconInbox = memo(() => (
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="5" y="8" width="30" height="24" rx="3" /><path d="M5 24h8l3 4 3-4h8" /><path d="M20 12v8M16 16l4 4 4-4" />
     </svg>
-);
-const IconPauseCircle = () => (
+));
+IconInbox.displayName = "IconInbox";
+
+const IconPauseCircle = memo(() => (
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="20" cy="20" r="14" />
         <rect x="14" y="13" width="4" height="14" rx="1" fill="currentColor" stroke="none" />
         <rect x="22" y="13" width="4" height="14" rx="1" fill="currentColor" stroke="none" />
     </svg>
-);
-const IconCheckCircle = () => (
+));
+IconPauseCircle.displayName = "IconPauseCircle";
+
+const IconCheckCircle = memo(() => (
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="20" cy="20" r="14" /><path d="M13 20l5 5 9-10" />
     </svg>
-);
+));
+IconCheckCircle.displayName = "IconCheckCircle";
 
 export default function DownloadsPage() {
     const { torrents, totalDownloadSpeed, totalUploadSpeed, pauseTorrent, resumeTorrent, startSeeding, setTorrentFileSelection, stopSeeding, deleteWithFiles, diskInfo } = useTorrents();
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<Tab>("All");
     const [drawerHash, setDrawerHash] = useState<string | null>(null);
+    const [drawerAnchorY, setDrawerAnchorY] = useState<number | null>(null);
     const [drawerFiles, setDrawerFiles] = useState<TorrentFile[]>([]);
     const [drawerLoading, setDrawerLoading] = useState(false);
     const [drawerActionByPath, setDrawerActionByPath] = useState<Record<string, boolean>>({});
@@ -105,29 +126,40 @@ export default function DownloadsPage() {
     const dlHistory = useRef<number[]>(new Array(60).fill(0));
     const ulHistory = useRef<number[]>(new Array(60).fill(0));
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const rafRef = useRef<number | null>(null);
+    const speedsRef = useRef({ dl: 0, ul: 0 });
 
     useEffect(() => {
-        dlHistory.current = [...dlHistory.current.slice(1), totalDownloadSpeed];
-        ulHistory.current = [...ulHistory.current.slice(1), totalUploadSpeed];
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        const W = canvas.width, H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
-        const maxVal = Math.max(...dlHistory.current, ...ulHistory.current, 1024);
-        const drawLine = (data: number[], stroke: string, fill: string) => {
-            const pts = data.map((v, i) => [i / (data.length - 1) * W, H - (v / maxVal) * H * 0.88] as [number, number]);
-            ctx.beginPath();
-            pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
-            ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
-            ctx.fillStyle = fill; ctx.fill();
-            ctx.beginPath();
-            pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
-            ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke();
+        speedsRef.current = { dl: totalDownloadSpeed, ul: totalUploadSpeed };
+
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        rafRef.current = requestAnimationFrame(() => {
+            dlHistory.current = [...dlHistory.current.slice(1), speedsRef.current.dl];
+            ulHistory.current = [...ulHistory.current.slice(1), speedsRef.current.ul];
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            const W = canvas.width, H = canvas.height;
+            ctx.clearRect(0, 0, W, H);
+            const maxVal = Math.max(...dlHistory.current, ...ulHistory.current, 1024);
+            const drawLine = (data: number[], stroke: string, fill: string) => {
+                const pts = data.map((v, i) => [i / (data.length - 1) * W, H - (v / maxVal) * H * 0.88] as [number, number]);
+                ctx.beginPath();
+                pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+                ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+                ctx.fillStyle = fill; ctx.fill();
+                ctx.beginPath();
+                pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+                ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke();
+            };
+            drawLine(ulHistory.current, 'rgba(124,106,255,0.65)', 'rgba(124,106,255,0.07)');
+            drawLine(dlHistory.current, 'rgba(45,212,191,0.9)', 'rgba(45,212,191,0.1)');
+        });
+
+        return () => {
+            if (rafRef.current) cancelAnimationFrame(rafRef.current);
         };
-        drawLine(ulHistory.current, 'rgba(124,106,255,0.65)', 'rgba(124,106,255,0.07)');
-        drawLine(dlHistory.current, 'rgba(45,212,191,0.9)', 'rgba(45,212,191,0.1)');
     }, [totalDownloadSpeed, totalUploadSpeed]);
 
     const formatSpeed = (bytes: number) => {
@@ -175,8 +207,18 @@ export default function DownloadsPage() {
         return () => clearInterval(t);
     }, [drawerHash, fetchFiles]);
 
-    const openDrawer = (hash: string) => { setDrawerHash(hash); setDrawerFiles([]); setDrawerActionByPath({}); };
-    const closeDrawer = () => { setDrawerHash(null); setDrawerFiles([]); setDrawerActionByPath({}); };
+    const openDrawer = (hash: string, anchorY?: number) => {
+        setDrawerHash(hash);
+        setDrawerAnchorY(typeof anchorY === "number" ? anchorY : null);
+        setDrawerFiles([]);
+        setDrawerActionByPath({});
+    };
+    const closeDrawer = () => {
+        setDrawerHash(null);
+        setDrawerAnchorY(null);
+        setDrawerFiles([]);
+        setDrawerActionByPath({});
+    };
     const drawerTorrent = torrents.find(t => t.infoHash === drawerHash);
     const canControlFiles = drawerTorrent?.status === "Downloading";
 
@@ -232,8 +274,8 @@ export default function DownloadsPage() {
 
     return (
         <div className="max-w-6xl mx-auto space-y-6 pb-10 relative px-1 sm:px-0 isolate">
-            <div className="pointer-events-none absolute -top-14 left-0 h-72 w-72 rounded-full bg-accent/12 blur-3xl" />
-            <div className="pointer-events-none absolute top-40 right-0 h-80 w-80 rounded-full bg-teal/10 blur-3xl" />
+            <div className="pointer-events-none absolute -top-14 left-0 h-72 w-72 rounded-full bg-accent/10 blur-2xl" />
+            <div className="pointer-events-none absolute top-40 right-0 h-80 w-80 rounded-full bg-teal/8 blur-2xl" />
 
             {/* Header */}
             <div className="relative z-10 flex items-end justify-between rounded-3xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] px-6 py-5">
@@ -257,7 +299,7 @@ export default function DownloadsPage() {
                     </div>
                     <canvas ref={canvasRef} width={800} height={52}
                         className="w-full rounded-lg block"
-                        style={{ height: '52px' }}
+                        style={{ height: '52px', willChange: 'contents' }}
                     />
                     {diskInfo && (() => {
                         const usedPct = diskInfo.total > 0 ? (diskInfo.used / diskInfo.total) * 100 : 0;
@@ -292,6 +334,9 @@ export default function DownloadsPage() {
                 ))}
             </div>
 
+            {/* Ratio Coach */}
+            {torrents.length > 0 && <RatioCoach />}
+
             {/* Cards */}
             <div className="space-y-3">
                 {filtered.length > 0 ? (
@@ -307,7 +352,7 @@ export default function DownloadsPage() {
                         const isActive = t.status === "Downloading" || t.status === "Seeding"; // has real-time files
 
                         return (
-                            <div key={t.infoHash} style={{ contentVisibility: 'auto', containIntrinsicSize: '140px' }} className="group rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] hover:border-accent/30 hover:shadow-[0_20px_48px_-28px_rgba(122,106,255,0.85)] transition-all overflow-hidden">
+                            <div key={t.infoHash} style={{ contentVisibility: 'auto', containIntrinsicSize: '140px', willChange: 'transform' }} className="group rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] hover:border-accent/30 transition-all overflow-hidden hover:scale-[1.02]">
                                 <div className="h-[3px] bg-white/[0.05]">
                                     <div className={`h-full bg-gradient-to-r ${barGradient} transition-all duration-700`} style={{ width: `${Math.min(progress, 100)}%` }} />
                                 </div>
@@ -337,7 +382,7 @@ export default function DownloadsPage() {
                                             <div className="flex gap-1.5">
                                                 {/* Files drawer button — only for active downloads */}
                                                 {isActive && (
-                                                    <button onClick={() => openDrawer(t.infoHash)}
+                                                    <button onClick={(e) => openDrawer(t.infoHash, e.clientY)}
                                                         className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/[0.05] text-text-3 hover:text-white hover:bg-white/[0.11] border border-white/[0.08] transition-all"
                                                         title="View files">
                                                         <IconFiles />
@@ -391,94 +436,100 @@ export default function DownloadsPage() {
 
             {/* File List Drawer */}
             {drawerHash && (
-                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/70 animate-modal-overlay"
-                    onClick={e => { if (e.target === e.currentTarget) closeDrawer(); }}>
-                    <div className="w-full max-w-2xl rounded-2xl bg-[#0d0d20] border border-white/[0.08] shadow-2xl shadow-black/80 flex flex-col max-h-[80vh] animate-modal-panel transform-gpu">
-                        {/* Drawer header */}
-                        <div className="flex items-start justify-between p-5 pb-4 border-b border-white/[0.06]">
-                            <div className="min-w-0">
-                                <h2 className="text-base font-bold text-white">Files</h2>
-                                <p className="text-[11px] text-text-3 truncate mt-0.5">{drawerTorrent?.name || drawerHash}</p>
+                <>
+                    <div className="fixed inset-0 z-40 bg-black/70 animate-modal-overlay"
+                        onClick={e => { if (e.target === e.currentTarget) closeDrawer(); }} />
+                    <div className="fixed inset-0 z-50 p-4 flex items-start justify-center overflow-y-auto pointer-events-none">
+                        <div
+                            className="w-full max-w-2xl rounded-2xl bg-[#0d0d20] border border-white/[0.08] shadow-2xl shadow-black/80 flex flex-col max-h-[85vh] animate-modal-panel transform-gpu pointer-events-auto"
+                            style={{ marginTop: `${Math.max(16, (drawerAnchorY ?? 160) - 160)}px` }}
+                        >
+                            {/* Drawer header */}
+                            <div className="flex items-start justify-between p-5 pb-4 border-b border-white/[0.06]">
+                                <div className="min-w-0">
+                                    <h2 className="text-base font-bold text-white">Files</h2>
+                                    <p className="text-[11px] text-text-3 truncate mt-0.5">{drawerTorrent?.name || drawerHash}</p>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0 ml-3">
+                                    {drawerTorrent && (
+                                        <span className="text-[10px] font-mono text-text-3">
+                                            {drawerFiles.length} file{drawerFiles.length !== 1 ? "s" : ""}
+                                        </span>
+                                    )}
+                                    <button onClick={closeDrawer}
+                                        className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:text-white hover:bg-white/[0.06] transition-all text-sm">
+                                        &#x2715;
+                                    </button>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2 shrink-0 ml-3">
-                                {drawerTorrent && (
-                                    <span className="text-[10px] font-mono text-text-3">
-                                        {drawerFiles.length} file{drawerFiles.length !== 1 ? "s" : ""}
-                                    </span>
-                                )}
-                                <button onClick={closeDrawer}
-                                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:text-white hover:bg-white/[0.06] transition-all text-sm">
-                                    &#x2715;
-                                </button>
-                            </div>
-                        </div>
 
-                        {/* Overall progress bar */}
-                        {drawerTorrent && (
-                            <div className="px-5 py-3 border-b border-white/[0.04]">
-                                <div className="flex items-center justify-between text-[11px] text-text-3 mb-1.5">
-                                    <span>Overall progress</span>
-                                    <span className={`font-mono font-bold ${drawerTorrent.status === "Downloading" ? "text-accent" : "text-teal"}`}>
-                                        {parseFloat(drawerTorrent.progress).toFixed(1)}%
-                                    </span>
+                            {/* Overall progress bar */}
+                            {drawerTorrent && (
+                                <div className="px-5 py-3 border-b border-white/[0.04]">
+                                    <div className="flex items-center justify-between text-[11px] text-text-3 mb-1.5">
+                                        <span>Overall progress</span>
+                                        <span className={`font-mono font-bold ${drawerTorrent.status === "Downloading" ? "text-accent" : "text-teal"}`}>
+                                            {parseFloat(drawerTorrent.progress).toFixed(1)}%
+                                        </span>
+                                    </div>
+                                    <div className="h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
+                                        <div className="h-full bg-gradient-to-r from-accent to-teal rounded-full transition-all duration-700"
+                                            style={{ width: `${Math.min(parseFloat(drawerTorrent.progress), 100)}%` }} />
+                                    </div>
+                                    {!canControlFiles && (
+                                        <p className="mt-2 text-[10px] text-text-3/70">File controls are available only while this torrent is downloading.</p>
+                                    )}
                                 </div>
-                                <div className="h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
-                                    <div className="h-full bg-gradient-to-r from-accent to-teal rounded-full transition-all duration-700"
-                                        style={{ width: `${Math.min(parseFloat(drawerTorrent.progress), 100)}%` }} />
-                                </div>
-                                {!canControlFiles && (
-                                    <p className="mt-2 text-[10px] text-text-3/70">File controls are available only while this torrent is downloading.</p>
-                                )}
-                            </div>
-                        )}
+                            )}
 
-                        {/* File list */}
-                        <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-1.5 [contain:content] [scrollbar-gutter:stable]">
-                            {drawerLoading && drawerFiles.length === 0 ? (
-                                <div className="py-10 text-center text-text-3 text-sm animate-pulse">Loading file list...</div>
-                            ) : drawerFiles.length === 0 ? (
-                                <div className="py-10 text-center space-y-2">
-                                    <p className="text-text-3/40 text-sm">No file info yet</p>
-                                    <p className="text-text-3/25 text-[11px]">The torrent may still be fetching metadata — try again in a moment</p>
-                                </div>
-                            ) : (
-                                drawerFiles.map((f) => {
-                                    const pct = Math.min(f.progress * 100, 100);
-                                    const isDone = pct >= 99.9;
-                                    const isPaused = f.paused === true || f.selected === false;
-                                    const isBusy = !!drawerActionByPath[f.path];
-                                    const canToggle = canControlFiles && !isBusy && !isDone;
-                                    return (
-                                        <div key={f.path} className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04] transition-colors duration-200">
-                                            <div className="flex items-center justify-between gap-3 mb-2">
-                                                <span className="text-xs text-white font-medium truncate flex-1">{f.name}</span>
-                                                <div className="grid grid-cols-[28px_56px_72px] items-center gap-2 shrink-0 text-[10px] font-mono text-text-3">
-                                                    <button
-                                                        onClick={() => toggleDrawerFile(f)}
-                                                        disabled={!canToggle}
-                                                        title={isPaused ? "Resume this file" : "Pause this file"}
-                                                        className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-all ${isPaused
-                                                            ? "bg-teal/10 text-teal border-teal/20 hover:bg-teal/20"
-                                                            : "bg-warning/10 text-warning border-warning/20 hover:bg-warning/20"
-                                                            } ${!canToggle ? "opacity-40 cursor-not-allowed hover:bg-transparent" : ""}`}
-                                                    >
-                                                        {isPaused ? <IconPlay /> : <IconPause />}
-                                                    </button>
-                                                    <span className="text-right">{(pct).toFixed(1)}%</span>
-                                                    <span className="text-right">{formatSize(f.length)}</span>
+                            {/* File list */}
+                            <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-1.5 [contain:content] [scrollbar-gutter:stable]">
+                                {drawerLoading && drawerFiles.length === 0 ? (
+                                    <div className="py-10 text-center text-text-3 text-sm animate-pulse">Loading file list...</div>
+                                ) : drawerFiles.length === 0 ? (
+                                    <div className="py-10 text-center space-y-2">
+                                        <p className="text-text-3/40 text-sm">No file info yet</p>
+                                        <p className="text-text-3/25 text-[11px]">The torrent may still be fetching metadata — try again in a moment</p>
+                                    </div>
+                                ) : (
+                                    drawerFiles.map((f) => {
+                                        const pct = Math.min(f.progress * 100, 100);
+                                        const isDone = pct >= 99.9;
+                                        const isPaused = f.paused === true || f.selected === false;
+                                        const isBusy = !!drawerActionByPath[f.path];
+                                        const canToggle = canControlFiles && !isBusy && !isDone;
+                                        return (
+                                            <div key={f.path} className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04] transition-colors duration-200">
+                                                <div className="flex items-center justify-between gap-3 mb-2">
+                                                    <span className="text-xs text-white font-medium truncate flex-1">{f.name}</span>
+                                                    <div className="grid grid-cols-[28px_56px_72px] items-center gap-2 shrink-0 text-[10px] font-mono text-text-3">
+                                                        <button
+                                                            onClick={() => toggleDrawerFile(f)}
+                                                            disabled={!canToggle}
+                                                            title={isPaused ? "Resume this file" : "Pause this file"}
+                                                            className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-all ${isPaused
+                                                                ? "bg-teal/10 text-teal border-teal/20 hover:bg-teal/20"
+                                                                : "bg-warning/10 text-warning border-warning/20 hover:bg-warning/20"
+                                                                } ${!canToggle ? "opacity-40 cursor-not-allowed hover:bg-transparent" : ""}`}
+                                                        >
+                                                            {isPaused ? <IconPlay /> : <IconPause />}
+                                                        </button>
+                                                        <span className="text-right">{(pct).toFixed(1)}%</span>
+                                                        <span className="text-right">{formatSize(f.length)}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="h-1 bg-white/[0.05] rounded-full overflow-hidden">
+                                                    <div className={`h-full rounded-full ${isPaused ? "bg-warning" : isDone ? "bg-teal" : "bg-gradient-to-r from-accent to-teal"}`}
+                                                        style={{ width: `${pct}%` }} />
                                                 </div>
                                             </div>
-                                            <div className="h-1 bg-white/[0.05] rounded-full overflow-hidden">
-                                                <div className={`h-full rounded-full ${isPaused ? "bg-warning" : isDone ? "bg-teal" : "bg-gradient-to-r from-accent to-teal"}`}
-                                                    style={{ width: `${pct}%` }} />
-                                            </div>
-                                        </div>
-                                    );
-                                })
-                            )}
+                                        );
+                                    })
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
+                </>
             )}
         </div>
     );

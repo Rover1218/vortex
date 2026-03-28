@@ -1,8 +1,8 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { TorrentProvider } from "@/context/TorrentContext";
 import EngineStatusOverlay from "@/components/EngineStatusOverlay";
@@ -14,12 +14,18 @@ export default function ProtectedLayout({
 }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const [key, setKey] = useState(0);
 
   useEffect(() => {
     if (!loading && !user) {
       router.push("/login");
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    setKey(prev => prev + 1);
+  }, [pathname]);
 
   // Show loading state while checking auth
   if (loading) {
@@ -45,7 +51,7 @@ export default function ProtectedLayout({
       <div className="flex min-h-screen overflow-x-hidden">
         <Sidebar />
         <main className="flex-1 ml-60 min-h-screen px-8 py-6 relative">
-          <div className="perf-auto">
+          <div key={key} className="perf-auto page-enter-active">
             {children}
           </div>
           <EngineStatusOverlay />
