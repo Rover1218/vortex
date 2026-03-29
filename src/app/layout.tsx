@@ -3,6 +3,8 @@ import { DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import MobileBlocker from "@/components/MobileBlocker";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+import { Analytics } from "@vercel/analytics/next";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -36,6 +38,8 @@ export default function RootLayout({
             {children}
           </MobileBlocker>
         </AuthProvider>
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );
