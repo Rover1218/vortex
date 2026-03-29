@@ -7,29 +7,45 @@ import { LATEST_ENGINE_VERSION } from "@/constants/version";
 export default function EngineStatusOverlay() {
     const { isEngineConnected, engineVersion } = useTorrents();
     const [mounted, setMounted] = useState(false);
+    const [detectedOutdatedVersion, setDetectedOutdatedVersion] = useState(false);
 
     useEffect(() => {
         setMounted(true);
     }, []);
 
+    // Track if we've ever detected an outdated version to prevent modal flickering
+    useEffect(() => {
+        if (isEngineConnected && engineVersion) {
+            // Only mark as outdated if we have a version AND it doesn't match
+            if (engineVersion !== LATEST_ENGINE_VERSION) {
+                setDetectedOutdatedVersion(true);
+            } else {
+                // If version matches, clear the outdated flag
+                setDetectedOutdatedVersion(false);
+            }
+        }
+        // If version is null but connected, don't set outdated yet - wait for version
+    }, [isEngineConnected, engineVersion]);
+
     if (!mounted) return null;
 
-    // If connected but version is missing (old engine) or mismatched, it's outdated
-    const isOutdated = isEngineConnected && (!engineVersion || engineVersion !== LATEST_ENGINE_VERSION);
+    // Determine which modal to show - prioritize outdated version
+    const shouldShowOutdatedModal = detectedOutdatedVersion;
+    const shouldShowOfflineModal = !isEngineConnected && !detectedOutdatedVersion;
 
-    if (isEngineConnected && !isOutdated) return null;
+    if (!shouldShowOutdatedModal && !shouldShowOfflineModal) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xl">
             <div className="max-w-md w-full bg-surface border border-white/[0.1] rounded-3xl p-8 shadow-2xl relative overflow-hidden">
-                <div className={`absolute inset-0 bg-gradient-to-br ${isOutdated ? 'from-amber-500/10' : 'from-red-500/10'} via-transparent to-accent/10 pointer-events-none`} />
-                
-                <div className={`w-16 h-16 rounded-2xl ${isOutdated ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' : 'bg-red-500/10 border-red-500/20 text-red-500'} border flex items-center justify-center mb-6 relative`}>
+                <div className={`absolute inset-0 bg-gradient-to-br ${shouldShowOutdatedModal ? 'from-amber-500/10' : 'from-red-500/10'} via-transparent to-accent/10 pointer-events-none`} />
+
+                <div className={`w-16 h-16 rounded-2xl ${shouldShowOutdatedModal ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' : 'bg-red-500/10 border-red-500/20 text-red-500'} border flex items-center justify-center mb-6 relative`}>
                     <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isOutdated ? 'bg-amber-400' : 'bg-red-400'} opacity-75`}></span>
-                        <span className={`relative inline-flex rounded-full h-3 w-3 ${isOutdated ? 'bg-amber-500' : 'bg-red-500'}`}></span>
+                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${shouldShowOutdatedModal ? 'bg-amber-400' : 'bg-red-400'} opacity-75`}></span>
+                        <span className={`relative inline-flex rounded-full h-3 w-3 ${shouldShowOutdatedModal ? 'bg-amber-500' : 'bg-red-500'}`}></span>
                     </span>
-                    {isOutdated ? (
+                    {shouldShowOutdatedModal ? (
                         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                             <polyline points="7 10 12 15 17 10" />
@@ -43,10 +59,10 @@ export default function EngineStatusOverlay() {
                 </div>
 
                 <h2 className="text-2xl font-black text-white mb-2 tracking-tight">
-                    {isOutdated ? "Update Required" : "Vortex Engine Offline"}
+                    {shouldShowOutdatedModal ? "Update Required" : "Vortex Engine Offline"}
                 </h2>
                 <p className="text-text-2 mb-8 text-sm leading-relaxed">
-                    {isOutdated 
+                    {shouldShowOutdatedModal && engineVersion
                         ? `Your engine version (${engineVersion}) is outdated. Please download the latest version (${LATEST_ENGINE_VERSION}) to continue using Vortex safely.`
                         : "The background torrent engine is not running or unreachable. You need the standalone engine to safely search, download, and manage your torrents."
                     }
@@ -56,7 +72,7 @@ export default function EngineStatusOverlay() {
                     <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.05]">
                         <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-2">Instructions</h3>
                         <ol className="text-sm text-text-3 space-y-2 list-decimal list-inside marker:text-accent">
-                            {isOutdated ? (
+                            {shouldShowOutdatedModal ? (
                                 <>
                                     <li>Download the latest Vortex Engine EXE.</li>
                                     <li>Close your current <span className="font-mono text-accent/80">vortex.exe</span>.</li>
@@ -73,7 +89,7 @@ export default function EngineStatusOverlay() {
                     </div>
 
                     <div className="flex flex-col gap-3 w-full">
-                        {!isOutdated && (
+                        {!shouldShowOutdatedModal && (
                             <button
                                 onClick={() => { window.location.href = 'vortex://launch'; }}
                                 className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-white/[0.05] text-white border border-white/10 hover:bg-white/[0.1] transition-all duration-300"
@@ -87,10 +103,8 @@ export default function EngineStatusOverlay() {
                             </button>
                         )}
 
-                        <a
-                            href="/downloads/vortex.exe"
-                            target="_blank"
-                            rel="noopener noreferrer"
+                        <button
+                            onClick={() => window.open("https://github.com/Rover1218/vortex/releases/download/0.1.2/vortex.exe", "_blank")}
                             className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-gradient-to-r from-accent to-teal text-white shadow-xl shadow-accent/20 hover:shadow-accent/40 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -98,8 +112,8 @@ export default function EngineStatusOverlay() {
                                 <polyline points="7 10 12 15 17 10" />
                                 <line x1="12" y1="15" x2="12" y2="3" />
                             </svg>
-                            {isOutdated ? "Download Update" : "First Launch? Download Engine"}
-                        </a>
+                            {shouldShowOutdatedModal ? "Download Update" : "First Launch? Download Engine"}
+                        </button>
                     </div>
                 </div>
             </div>
