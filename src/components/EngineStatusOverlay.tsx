@@ -2,7 +2,7 @@
 
 import { useTorrents } from "@/context/TorrentContext";
 import { useEffect, useState } from "react";
-import { LATEST_ENGINE_VERSION } from "@/constants/version";
+import { DOWNLOAD_LINK, LATEST_ENGINE_VERSION } from "@/constants/version";
 
 export default function EngineStatusOverlay() {
     const { isEngineConnected, engineVersion } = useTorrents();
@@ -104,7 +104,7 @@ export default function EngineStatusOverlay() {
                         )}
 
                         <button
-                            onClick={() => window.open("https://github.com/Rover1218/vortex/releases/download/0.1.2/vortex.exe", "_blank")}
+                            onClick={() => window.open(DOWNLOAD_LINK, "_blank")}
                             className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-gradient-to-r from-accent to-teal text-white shadow-xl shadow-accent/20 hover:shadow-accent/40 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

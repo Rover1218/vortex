@@ -22,7 +22,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import zlib from 'zlib';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 // admin import removed for security (proxy approach)
 import WebTorrentImport from 'webtorrent';
 import pt from 'parse-torrent';
@@ -31,7 +31,7 @@ const parseTorrent = pt.default || pt;
 
 const WebTorrentModule = WebTorrentImport.default || WebTorrentImport;
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
 // For testing locally, it will try localhost:3000 if the Vercel site is not deployed with the proxy yet.
 let PROXY_URL = 'https://vortex-movies.vercel.app/api/sync';
 
@@ -198,6 +198,16 @@ async function startServer() {
         state.timer = setTimeout(flush, scheduleDelay);
     }
 
+    function syncAllStateToCloud(reason = 'manual') {
+        if (!activeUserToken) return;
+        queueSyncToCloud('settings', settings);
+        queueSyncToCloud('stats', lifetimeTotals);
+        saveTorrentList();
+        if (process.env.VORTEX_DEBUG) {
+            console.log(`[Sync] Seeded full state to cloud (${reason})`);
+        }
+    }
+
     async function fetchFromCloud(type) {
         if (!activeUserToken) return null;
         try {
@@ -259,8 +269,14 @@ async function startServer() {
 
         // In this approach, we trust the frontend token and use it to talk to the Proxy.
         // The Proxy will do the actual Firebase token verification.
+        const tokenChanged = activeUserToken !== token;
         activeUserToken = token;
         fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token }));
+        if (tokenChanged) {
+            lastSyncErrorStatus = null;
+            hydrateSettingsFromCloud('http-auth').catch(() => { });
+            setTimeout(() => syncAllStateToCloud('http-auth'), 250);
+        }
         next();
     }
 
@@ -268,11 +284,15 @@ async function startServer() {
     io.use(async (socket, next) => {
         const token = socket.handshake.auth?.token;
         if (!token) return next(new Error('Unauthorized'));
+        const tokenChanged = activeUserToken !== token;
         activeUserToken = token;
         lastSyncErrorStatus = null; // Reset error state on new connection
         fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token }));
         // Token just became available for this socket; hydrate cloud settings into engine memory.
-        hydrateSettingsFromCloud('socket-auth').catch(() => { });
+        if (tokenChanged) {
+            hydrateSettingsFromCloud('socket-auth').catch(() => { });
+            setTimeout(() => syncAllStateToCloud('socket-auth'), 250);
+        }
         next();
     });
 
@@ -280,10 +300,14 @@ async function startServer() {
         socket.on('update-token', (data) => {
             if (data?.token) {
                 if (process.env.VORTEX_DEBUG) console.log('[Engine] Token updated via socket');
+                const tokenChanged = activeUserToken !== data.token;
                 activeUserToken = data.token;
                 lastSyncErrorStatus = null; // Reset error state
                 fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token: data.token }));
-                hydrateSettingsFromCloud('socket-update-token').catch(() => { });
+                if (tokenChanged) {
+                    hydrateSettingsFromCloud('socket-update-token').catch(() => { });
+                    setTimeout(() => syncAllStateToCloud('socket-update-token'), 250);
+                }
             }
         });
     });
@@ -321,6 +345,34 @@ async function startServer() {
     let settingsHydrateInFlight = false;
     let lastSettingsHydrateAt = 0;
 
+    function ensureSettingsFile() {
+        try {
+            if (!fs.existsSync(SETTINGS_FILE)) {
+                const initialSettings = normalizeSettings(DEFAULT_SETTINGS);
+                fs.writeFileSync(SETTINGS_FILE, JSON.stringify(initialSettings, null, 2));
+                if (!fs.existsSync(initialSettings.downloadPath)) {
+                    fs.mkdirSync(initialSettings.downloadPath, { recursive: true });
+                }
+                settings = initialSettings;
+            }
+        } catch (err) {
+            console.error('[Settings] Failed to create default settings.json:', err.message);
+        }
+    }
+
+    function ensureStateFiles() {
+        try {
+            if (!fs.existsSync(STATS_FILE)) {
+                fs.writeFileSync(STATS_FILE, JSON.stringify({ downloaded: 0, seeded: 0 }, null, 2));
+            }
+            if (!fs.existsSync(TORRENTS_FILE)) {
+                fs.writeFileSync(TORRENTS_FILE, JSON.stringify([], null, 2));
+            }
+        } catch (err) {
+            console.error('[State] Failed to initialize stats/torrents files:', err.message);
+        }
+    }
+
     async function hydrateSettingsFromCloud(reason = 'manual') {
         if (!activeUserToken) return false;
         if (settingsHydrateInFlight) return false;
@@ -330,7 +382,15 @@ async function startServer() {
         settingsHydrateInFlight = true;
         try {
             const cloudSettings = await fetchFromCloud('settings');
-            if (!cloudSettings) return false;
+            if (!cloudSettings) {
+                // First-time user path: no cloud settings yet, seed defaults/current local settings.
+                queueSyncToCloud('settings', settings);
+                lastSettingsHydrateAt = Date.now();
+                if (process.env.VORTEX_DEBUG) {
+                    console.log(`[Sync] No cloud settings found (${reason}) - seeded defaults to cloud`);
+                }
+                return false;
+            }
 
             const nextSettings = normalizeSettings(cloudSettings);
             const changed = JSON.stringify(nextSettings) !== JSON.stringify(settings);
@@ -372,6 +432,8 @@ async function startServer() {
         if (!fs.existsSync(settings.downloadPath)) fs.mkdirSync(settings.downloadPath, { recursive: true });
         queueSyncToCloud('settings', settings);
     }
+    ensureSettingsFile();
+    ensureStateFiles();
     loadSettings();
 
     // ─── Torrent Persistence ───
@@ -980,7 +1042,7 @@ async function startServer() {
 
             // Force an immediate sync to Firestore so local data migrates to the cloud instantly
             setTimeout(() => {
-                if (activeUserId) saveTorrentList();
+                saveTorrentList();
             }, 2000);
         }
     }).catch(console.error);
@@ -1050,15 +1112,24 @@ async function startServer() {
     });
 
     // Watch settings.json for external edits (e.g. manual file edit)
-    fs.watch(SETTINGS_FILE, { persistent: false }, (eventType) => {
-        if (eventType === 'change') {
-            try {
-                const saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
-                settings = normalizeSettings(saved);
-                applyBandwidthLimits();
-                io.emit('settings-updated', settings);
-                console.log('⚙ Settings reloaded from file');
-            } catch { /* ignore parse errors */ }
+    const SETTINGS_FILENAME = path.basename(SETTINGS_FILE);
+    fs.watch(DATA_DIR, { persistent: false }, (eventType, filename) => {
+        if (!filename || filename.toString() !== SETTINGS_FILENAME) return;
+        if (eventType !== 'change' && eventType !== 'rename') return;
+
+        try {
+            if (!fs.existsSync(SETTINGS_FILE)) {
+                ensureSettingsFile();
+                return;
+            }
+
+            const saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+            settings = normalizeSettings(saved);
+            applyBandwidthLimits();
+            io.emit('settings-updated', settings);
+            console.log('⚙ Settings reloaded from file');
+        } catch {
+            // Ignore transient file-write timing and parse errors.
         }
     });
 
@@ -1297,6 +1368,57 @@ async function startServer() {
         return (name || '').match(/\b((?:19|20)\d{2})\b/)?.[1] || '';
     }
 
+    function extractInfoHashFromMagnet(magnet) {
+        if (!magnet || typeof magnet !== 'string') return '';
+        const m = magnet.match(/btih:([a-fA-F0-9]{40}|[A-Z2-7]{32})/i);
+        return m ? m[1].toLowerCase() : '';
+    }
+
+    function getSearchTokens(query) {
+        const stopWords = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'movie', 'show', 'season', 'episode']);
+        return normalizeReleaseName(query)
+            .split(/\s+/)
+            .map(t => t.trim())
+            .filter(t => t.length > 1 && !stopWords.has(t));
+    }
+
+    function scoreSearchResult(result, query, tokens) {
+        const title = String(result?.title || '');
+        const titleNorm = normalizeReleaseName(title);
+        const queryNorm = normalizeReleaseName(query);
+        const seeds = Number(result?.seeds || 0);
+        const inLibraryBoost = result?._inLibrary ? 400 : 0;
+
+        let tokenHits = 0;
+        let startsWithHits = 0;
+        for (const t of tokens) {
+            if (titleNorm.includes(t)) {
+                tokenHits += 1;
+                if (titleNorm.split(/\s+/).some(w => w.startsWith(t))) startsWithHits += 1;
+            }
+        }
+
+        const hasExact = queryNorm && titleNorm.includes(queryNorm);
+        const tokenCoverage = tokens.length > 0 ? tokenHits / tokens.length : 0;
+        const seedScore = Math.log10(Math.max(1, seeds + 1)) * 20;
+        const titleLengthPenalty = Math.max(0, titleNorm.length - 120) * 0.15;
+
+        const score =
+            inLibraryBoost +
+            (hasExact ? 220 : 0) +
+            (tokenCoverage * 180) +
+            (startsWithHits * 18) +
+            seedScore -
+            titleLengthPenalty;
+
+        return {
+            ...result,
+            _score: score,
+            _tokenHits: tokenHits,
+            _tokenCoverage: tokenCoverage
+        };
+    }
+
     function localMatchForTitle(title, localResults) {
         const normalizedTitle = normalizeSearchName(title);
         const normalizedRelease = normalizeReleaseName(title);
@@ -1491,17 +1613,41 @@ async function startServer() {
 
         if (searchId !== activeSearchId) return res.json({ results: [], logs: [], cancelled: true });
 
-        // Deduplicate by title (case-insensitive)
-        const seen = new Set();
-        const deduped = allResults.filter(r => {
-            const key = `${r._provider || ''}::${(r.title || '').toLowerCase().trim()}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
+        const searchTokens = getSearchTokens(String(q));
+
+        // Score each result for actual relevance (not only seeds).
+        const scored = allResults.map(r => scoreSearchResult(r, String(q), searchTokens));
+
+        // Optional quality gate: when tokenized query exists, drop obviously unrelated remote noise.
+        const qualityFiltered = scored.filter(r => {
+            if (r._inLibrary || r._provider === 'Local') return true;
+            if (searchTokens.length === 0) return true;
+            // Keep strong matches, and allow high-seed items with at least one token hit.
+            return r._tokenCoverage >= 0.5 || (r._tokenHits >= 1 && (r.seeds || 0) >= 25);
         });
 
-        // Sort by seeders desc, take top 150
-        deduped.sort((a, b) => (b.seeds || 0) - (a.seeds || 0));
+        // Deduplicate by infoHash/magnet when possible, otherwise by normalized title.
+        const byKey = new Map();
+        for (const r of qualityFiltered) {
+            const hash = extractInfoHashFromMagnet(r._magnet);
+            const titleKey = normalizeReleaseName(r.title || '');
+            const key = hash ? `hash:${hash}` : `title:${titleKey}`;
+            const existing = byKey.get(key);
+            if (!existing || (r._score || 0) > (existing._score || 0)) {
+                byKey.set(key, r);
+            }
+        }
+
+        const deduped = Array.from(byKey.values());
+
+        // Primary sort by relevance score, secondary by seeders, tertiary by shorter title.
+        deduped.sort((a, b) => {
+            const scoreDelta = (b._score || 0) - (a._score || 0);
+            if (scoreDelta !== 0) return scoreDelta;
+            const seedsDelta = (b.seeds || 0) - (a.seeds || 0);
+            if (seedsDelta !== 0) return seedsDelta;
+            return String(a.title || '').length - String(b.title || '').length;
+        });
 
         lastSearchResults = deduped.slice(0, 150);
         const formatted = lastSearchResults.map((r, i) => ({
@@ -1670,6 +1816,79 @@ async function startServer() {
                 estimated: true,
             });
         }
+    });
+
+    function resolveTorrentFolderPath(infoHash) {
+        const active = client.torrents.find(t => t.infoHash === infoHash);
+        const completed = completedTorrents.get(infoHash);
+        const paused = pausedTorrents.get(infoHash);
+
+        const candidates = [];
+
+        if (active?.name) candidates.push(path.join(settings.downloadPath, active.name));
+        if (completed?.name) candidates.push(path.join(settings.downloadPath, completed.name));
+        if (paused?.name) candidates.push(path.join(settings.downloadPath, paused.name));
+
+        // Try deriving folder from active files if available.
+        if (active?.files?.length) {
+            const first = active.files[0];
+            if (first?.path) {
+                const resolved = path.join(settings.downloadPath, first.path);
+                candidates.push(path.dirname(resolved));
+            }
+        }
+
+        for (const candidate of candidates) {
+            try {
+                if (!candidate) continue;
+                if (!fs.existsSync(candidate)) continue;
+                const stat = fs.statSync(candidate);
+                return stat.isDirectory() ? candidate : path.dirname(candidate);
+            } catch {
+                // Ignore candidate errors and keep trying.
+            }
+        }
+
+        // Fallback to the configured download root.
+        return settings.downloadPath;
+    }
+
+    function openFolderOnSystem(folderPath) {
+        if (!folderPath || !fs.existsSync(folderPath)) return false;
+
+        try {
+            if (process.platform === 'win32') {
+                const winPath = path.normalize(folderPath);
+                const child = spawn('explorer.exe', [winPath], { detached: true, stdio: 'ignore', windowsHide: true });
+                child.unref();
+                return true;
+            }
+            if (process.platform === 'darwin') {
+                const child = spawn('open', [folderPath], { detached: true, stdio: 'ignore' });
+                child.unref();
+                return true;
+            }
+            const child = spawn('xdg-open', [folderPath], { detached: true, stdio: 'ignore' });
+            child.unref();
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    app.post('/api/torrents/:infoHash/open-folder', verifyUser, (req, res) => {
+        const hash = String(req.params.infoHash || '').trim();
+        if (!hash) return res.status(400).json({ error: 'Invalid infoHash' });
+
+        const folderPath = resolveTorrentFolderPath(hash);
+        if (!folderPath || !fs.existsSync(folderPath)) {
+            return res.status(404).json({ error: 'Download folder not found' });
+        }
+
+        const opened = openFolderOnSystem(folderPath);
+        if (!opened) return res.status(500).json({ error: 'Failed to open folder' });
+
+        return res.json({ success: true, folderPath });
     });
 
     // ─── Add Torrent ───

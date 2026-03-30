@@ -116,11 +116,12 @@ export default function DownloadsPage() {
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<Tab>("All");
     const [drawerHash, setDrawerHash] = useState<string | null>(null);
-    const [drawerAnchorY, setDrawerAnchorY] = useState<number | null>(null);
     const [drawerFiles, setDrawerFiles] = useState<TorrentFile[]>([]);
     const [drawerLoading, setDrawerLoading] = useState(false);
     const [drawerActionByPath, setDrawerActionByPath] = useState<Record<string, boolean>>({});
+    const [drawerTop] = useState(0);
     const drawerFetchingRef = useRef(false);
+    const drawerPanelRef = useRef<HTMLDivElement>(null);
 
     // Speed sparkline history (last 60 ticks ~1 s each)
     const dlHistory = useRef<number[]>(new Array(60).fill(0));
@@ -207,20 +208,34 @@ export default function DownloadsPage() {
         return () => clearInterval(t);
     }, [drawerHash, fetchFiles]);
 
-    const openDrawer = (hash: string, anchorY?: number) => {
+    const openDrawer = (hash: string) => {
         setDrawerHash(hash);
-        setDrawerAnchorY(typeof anchorY === "number" ? anchorY : null);
         setDrawerFiles([]);
         setDrawerActionByPath({});
     };
     const closeDrawer = () => {
         setDrawerHash(null);
-        setDrawerAnchorY(null);
         setDrawerFiles([]);
         setDrawerActionByPath({});
     };
     const drawerTorrent = torrents.find(t => t.infoHash === drawerHash);
     const canControlFiles = drawerTorrent?.status === "Downloading";
+
+    useEffect(() => {
+        if (!drawerHash) return;
+        const onResize = () => {
+            // Keep the panel naturally centered by wrapper alignment.
+            // This listener exists only to force layout sync during viewport changes.
+            if (drawerPanelRef.current) {
+                drawerPanelRef.current.style.willChange = 'transform';
+                requestAnimationFrame(() => {
+                    if (drawerPanelRef.current) drawerPanelRef.current.style.willChange = 'auto';
+                });
+            }
+        };
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+    }, [drawerHash]);
 
     const toggleDrawerFile = useCallback(async (file: TorrentFile) => {
         if (!drawerHash || !canControlFiles || drawerActionByPath[file.path]) return;
@@ -382,7 +397,7 @@ export default function DownloadsPage() {
                                             <div className="flex gap-1.5">
                                                 {/* Files drawer button — only for active downloads */}
                                                 {isActive && (
-                                                    <button onClick={(e) => openDrawer(t.infoHash, e.clientY)}
+                                                    <button onClick={() => openDrawer(t.infoHash)}
                                                         className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/[0.05] text-text-3 hover:text-white hover:bg-white/[0.11] border border-white/[0.08] transition-all"
                                                         title="View files">
                                                         <IconFiles />
@@ -439,10 +454,11 @@ export default function DownloadsPage() {
                 <>
                     <div className="fixed inset-0 z-40 bg-black/70 animate-modal-overlay"
                         onClick={e => { if (e.target === e.currentTarget) closeDrawer(); }} />
-                    <div className="fixed inset-0 z-50 p-4 flex items-start justify-center overflow-y-auto pointer-events-none">
+                    <div className="fixed inset-0 z-50 p-4 flex items-center justify-center overflow-hidden pointer-events-none">
                         <div
+                            ref={drawerPanelRef}
                             className="w-full max-w-2xl rounded-2xl bg-[#0d0d20] border border-white/[0.08] shadow-2xl shadow-black/80 flex flex-col max-h-[85vh] animate-modal-panel transform-gpu pointer-events-auto"
-                            style={{ marginTop: `${Math.max(16, (drawerAnchorY ?? 160) - 160)}px` }}
+                            style={{ marginTop: `${drawerTop}px` }}
                         >
                             {/* Drawer header */}
                             <div className="flex items-start justify-between p-5 pb-4 border-b border-white/[0.06]">

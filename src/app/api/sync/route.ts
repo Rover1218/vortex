@@ -46,6 +46,12 @@ export async function POST(req: NextRequest) {
     const userId = decodedToken.uid;
     const userRef = adminDb.collection('users').doc(userId);
 
+    // Ensure parent user document exists so Firestore console and security logic are consistent.
+    await userRef.set({
+      uid: userId,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+
     if (syncType === 'settings') {
       const normalized = normalizeSettingsPayload(data);
       if (!normalized.downloadPath) {
@@ -105,6 +111,12 @@ export async function GET(req: NextRequest) {
     const decodedToken = await adminAuth.verifyIdToken(token);
     const userId = decodedToken.uid;
     const userRef = adminDb.collection('users').doc(userId);
+
+    // Ensure parent user document exists on first read paths as well.
+    await userRef.set({
+      uid: userId,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
 
     if (type === 'settings') {
       const doc = await userRef.collection('config').doc('settings').get();
