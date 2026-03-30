@@ -2,6 +2,7 @@
 
 import { useTorrents } from "@/context/TorrentContext";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 
 const SORT_OPTIONS = ['Relevance', 'Seeders (Most)', 'Seeders (Least)', 'Size (Largest)', 'Size (Smallest)'];
 const QUALITY_OPTIONS = [
@@ -35,7 +36,20 @@ interface SubResult {
     exact?: boolean;
 }
 
+interface ChatMessage {
+    role: 'bot' | 'user';
+    text: string;
+    suggestions?: string[];
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3001';
+const INITIAL_CHAT_MESSAGES: ChatMessage[] = [
+    {
+        role: 'bot',
+        text: 'Need help finding a movie? Tell me mood, language, or a similar title.',
+        suggestions: ['mind bending sci-fi', 'best korean thriller', 'feel-good movie']
+    }
+];
 
 export default function SearchPage() {
     const {
@@ -79,8 +93,17 @@ export default function SearchPage() {
     const [filesData, setFilesData] = useState<{ name: string; files: { name: string; size: number; path: string }[]; estimated?: boolean } | null>(null);
     const [filesError, setFilesError] = useState('');
 
+    // Movie helper chatbot
+    const [chatOpen, setChatOpen] = useState(false);
+    const [chatInput, setChatInput] = useState('');
+    const [chatBusy, setChatBusy] = useState(false);
+    const [lastChatPrompt, setLastChatPrompt] = useState('');
+    const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
+    const [chatMounted, setChatMounted] = useState(false);
+
     const sortRef = useRef<HTMLDivElement>(null);
     const suggestionRef = useRef<HTMLDivElement>(null);
+    const chatScrollRef = useRef<HTMLDivElement>(null);
     const searchSubmittedRef = useRef(false);
     const magnetCacheRef = useRef<Map<number, string>>(new Map());
 
@@ -91,6 +114,10 @@ export default function SearchPage() {
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    useEffect(() => {
+        setChatMounted(true);
     }, []);
 
     const updateSuggestions = useCallback(async (q: string) => {
@@ -207,6 +234,108 @@ export default function SearchPage() {
             doSearch(q);
         }
     };
+
+    const applyChatSearch = useCallback((title: string) => {
+        const q = title.trim();
+        if (!q) return;
+        setSearchQuery(q);
+        handleSearch(undefined, q);
+    }, [setSearchQuery]);
+
+    const buildFallbackSuggestions = (prompt: string) => {
+        const p = prompt.toLowerCase();
+        if (/anime|japanese|japan/.test(p)) return ['your name', 'a silent voice', 'spirited away', 'weathering with you'];
+        if (/korean|thriller|crime/.test(p)) return ['parasite', 'oldboy', 'memories of murder', 'the chaser'];
+        if (/hindi|bollywood|indian/.test(p)) return ['3 idiots', 'taare zameen par', 'dangal', 'znmd'];
+        if (/sci|space|mind|time/.test(p)) return ['interstellar', 'inception', 'predestination', 'arrival'];
+        if (/feel|happy|romance|light/.test(p)) return ['about time', 'the intern', 'la la land', 'notting hill'];
+        return ['oppenheimer', 'interstellar', 'breaking bad', 'the dark knight'];
+    };
+
+    const extractQueryHint = (input: string) => {
+        const stripped = input
+            .replace(/\b(find|search|movie|movies|show|shows|series|like|similar|recommend|suggest|please|watch|something|good|best|me|for|to|a|an|the)\b/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        return stripped.length >= 2 ? stripped : input.trim();
+    };
+
+    const fetchChatSuggestions = useCallback(async (message: string) => {
+        let picks: string[] = [];
+        let reply = 'Try one of these titles. Tap to search instantly.';
+
+        try {
+            const aiRes = await fetch('/api/movie-helper', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message }),
+            });
+
+            if (aiRes.ok) {
+                const aiData = await aiRes.json();
+                if (Array.isArray(aiData?.suggestions)) picks = aiData.suggestions.slice(0, 5);
+                if (typeof aiData?.reply === 'string' && aiData.reply.trim()) reply = aiData.reply.trim();
+            }
+        } catch {
+            // Fallback below handles API failures.
+        }
+
+        if (picks.length === 0) {
+            const hint = extractQueryHint(message).slice(0, 80);
+            const live = hint.length >= 2 ? await getSuggestions(hint) : [];
+            picks = (live && live.length > 0 ? live : buildFallbackSuggestions(message)).slice(0, 5);
+        }
+
+        return { picks, reply };
+    }, [getSuggestions]);
+
+    const handleChatSend = useCallback(async () => {
+        const message = chatInput.trim();
+        if (!message || chatBusy) return;
+
+        setChatMessages(prev => [...prev, { role: 'user', text: message }]);
+        setChatInput('');
+        setLastChatPrompt(message);
+        setChatBusy(true);
+
+        try {
+            const { picks, reply } = await fetchChatSuggestions(message);
+
+            setChatMessages(prev => [
+                ...prev,
+                {
+                    role: 'bot',
+                    text: picks.length > 0 ? reply : 'Could not find good matches. Try adding actor name, genre, or year.',
+                    suggestions: picks
+                }
+            ]);
+        } catch {
+            const fallback = buildFallbackSuggestions(message).slice(0, 5);
+            setChatMessages(prev => [
+                ...prev,
+                {
+                    role: 'bot',
+                    text: 'I had trouble reaching suggestions right now. Try these picks:',
+                    suggestions: fallback
+                }
+            ]);
+        } finally {
+            setChatBusy(false);
+        }
+    }, [chatBusy, chatInput, fetchChatSuggestions]);
+
+    const handleChatRefresh = useCallback(async () => {
+        if (chatBusy) return;
+        setChatInput('');
+        setLastChatPrompt('');
+        setChatMessages(INITIAL_CHAT_MESSAGES);
+    }, [chatBusy]);
+
+    useEffect(() => {
+        if (!chatOpen) return;
+        if (!chatScrollRef.current) return;
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }, [chatMessages, chatOpen]);
 
     const handleClear = () => {
         clearSearch();
@@ -963,6 +1092,91 @@ export default function SearchPage() {
                     <div className="text-5xl mb-6 opacity-20 animate-float">☁️</div>
                     <p className="text-text-3 font-medium">Start exploring across all providers</p>
                 </div>
+            )}
+
+            {/* Movie Helper Chatbot */}
+            {chatMounted && createPortal(
+                <div className="fixed bottom-5 right-5 z-[220] w-[340px] max-w-[calc(100vw-1.5rem)]">
+                    {chatOpen ? (
+                        <div className="rounded-2xl border border-white/[0.1] bg-[#0f1024]/95 backdrop-blur-md shadow-[0_22px_60px_-28px_rgba(0,0,0,0.9)] overflow-hidden">
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08]">
+                                <div>
+                                    <h3 className="text-sm font-bold text-white">Movie Helper</h3>
+                                    <p className="text-[10px] text-text-3">Ask naturally, tap to search</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={handleChatRefresh}
+                                        disabled={chatBusy}
+                                        className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-white/[0.04] border border-white/[0.08] text-text-2 hover:text-white hover:bg-white/[0.1] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                        title="Refresh chat"
+                                    >
+                                        {chatBusy ? '...' : 'Refresh'}
+                                    </button>
+                                    <button
+                                        onClick={() => setChatOpen(false)}
+                                        className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] text-text-3 hover:text-white hover:bg-white/[0.1] transition-all"
+                                        title="Close"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div ref={chatScrollRef} className="max-h-72 overflow-y-auto p-3 space-y-2">
+                                {chatMessages.map((m, idx) => (
+                                    <div key={idx} className={`space-y-2 ${m.role === 'user' ? 'text-right' : ''}`}>
+                                        <div className={`inline-block max-w-[90%] px-3 py-2 rounded-xl text-xs ${m.role === 'user'
+                                            ? 'bg-accent/20 border border-accent/25 text-white'
+                                            : 'bg-white/[0.04] border border-white/[0.08] text-text-2'
+                                            }`}>
+                                            {m.text}
+                                        </div>
+                                        {m.suggestions && m.suggestions.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {m.suggestions.map((s) => (
+                                                    <button
+                                                        key={`${idx}-${s}`}
+                                                        onClick={() => applyChatSearch(s)}
+                                                        className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-teal/12 border border-teal/25 text-teal hover:bg-teal/20 transition-all"
+                                                    >
+                                                        {s}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="p-3 border-t border-white/[0.08] flex gap-2">
+                                <input
+                                    value={chatInput}
+                                    onChange={e => setChatInput(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') handleChatSend(); }}
+                                    placeholder="e.g. mind bending movie like Inception"
+                                    className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white placeholder-text-3 focus:outline-none focus:border-accent/40"
+                                />
+                                <button
+                                    onClick={handleChatSend}
+                                    disabled={chatBusy || chatInput.trim().length === 0}
+                                    className="px-3 py-2 rounded-xl text-xs font-bold bg-accent/20 border border-accent/30 text-accent hover:bg-accent/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    {chatBusy ? '...' : 'Send'}
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setChatOpen(true)}
+                            className="ml-auto flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-accent to-teal text-white text-xs font-bold shadow-[0_14px_34px_-18px_rgba(84,120,255,0.95)] hover:brightness-110 transition-all"
+                        >
+                            <span>🤖</span>
+                            <span>Movie Helper</span>
+                        </button>
+                    )}
+                </div>,
+                document.body
             )}
         </div>
     );
