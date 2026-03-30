@@ -31,7 +31,7 @@ const parseTorrent = pt.default || pt;
 
 const WebTorrentModule = WebTorrentImport.default || WebTorrentImport;
 
-const VERSION = "0.1.3";
+const VERSION = "0.1.4";
 // For testing locally, it will try localhost:3000 if the Vercel site is not deployed with the proxy yet.
 let PROXY_URL = 'https://vortex-movies.vercel.app/api/sync';
 
@@ -413,17 +413,28 @@ async function startServer() {
         }
     }
 
-    function loadSettings() {
-        hydrateSettingsFromCloud('startup').then((hydrated) => {
-            if (hydrated) return;
-            if (fs.existsSync(SETTINGS_FILE)) {
-                try {
-                    const saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
-                    settings = normalizeSettings(saved);
-                } catch { }
-            } else {
-                saveSettings();
+    function loadSettingsFromDisk() {
+        if (fs.existsSync(SETTINGS_FILE)) {
+            try {
+                const saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+                settings = normalizeSettings(saved);
+                return;
+            } catch {
+                // Fall through and rewrite settings file below.
             }
+        }
+        saveSettings();
+    }
+
+    function loadSettings() {
+        // Load local settings synchronously so startup logs and restored torrents
+        // use the persisted download path right away.
+        loadSettingsFromDisk();
+
+        // Then hydrate from cloud in the background when available.
+        hydrateSettingsFromCloud('startup').then((hydrated) => {
+            if (!hydrated) return;
+            console.log(`⚙ Settings synced from cloud: path=${settings.downloadPath} dl=${settings.globalDownloadLimit} ul=${settings.globalUploadLimit}`);
         });
     }
     function saveSettings() {
@@ -523,16 +534,102 @@ async function startServer() {
         return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : null;
     }
 
+    function parseInfoHashFromMagnet(magnet) {
+        if (!magnet || typeof magnet !== 'string') return '';
+        const m = magnet.match(/btih:([a-fA-F0-9]{40}|[A-Z2-7]{32})/i);
+        return m ? String(m[1]).toLowerCase() : '';
+    }
+
+    function normalizeSavedTorrentEntry(entry) {
+        if (!entry || typeof entry !== 'object') return null;
+
+        const state = String(entry.state || '').trim().toLowerCase() || 'active';
+        const magnet = entry.magnet ? String(entry.magnet).trim() : '';
+        const infoHashRaw = entry.infoHash ? String(entry.infoHash).trim().toLowerCase() : '';
+        const infoHash = infoHashRaw || parseInfoHashFromMagnet(magnet);
+        const name = entry.name ? String(entry.name).trim() : '';
+        const addedAt = Number(entry.addedAt) || 0;
+
+        // Keep only entries we can reliably identify during restore.
+        if (!infoHash && !magnet && !name) return null;
+
+        return {
+            ...entry,
+            state,
+            magnet,
+            infoHash,
+            name,
+            addedAt
+        };
+    }
+
+    function dedupeSavedTorrents(list) {
+        const byKey = new Map();
+        const statePriority = {
+            active: 4,
+            seeding: 3,
+            paused: 2,
+            completed: 1,
+        };
+
+        for (const raw of (Array.isArray(list) ? list : [])) {
+            const item = normalizeSavedTorrentEntry(raw);
+            if (!item) continue;
+
+            const key = item.infoHash
+                ? `hash:${item.infoHash}`
+                : (item.magnet ? `magnet:${item.magnet}` : `name:${item.name}:${item.state}`);
+
+            const existing = byKey.get(key);
+            if (!existing) {
+                byKey.set(key, item);
+                continue;
+            }
+
+            const existingAddedAt = Number(existing.addedAt) || 0;
+            const nextAddedAt = Number(item.addedAt) || 0;
+            const existingPriority = statePriority[String(existing.state)] || 0;
+            const nextPriority = statePriority[String(item.state)] || 0;
+
+            const takeNext =
+                nextAddedAt > existingAddedAt ||
+                (nextAddedAt === existingAddedAt && nextPriority > existingPriority);
+
+            const merged = {
+                ...(takeNext ? existing : item),
+                ...(takeNext ? item : existing),
+                infoHash: item.infoHash || existing.infoHash || '',
+                magnet: item.magnet || existing.magnet || '',
+                name: item.name || existing.name || '',
+                addedAt: Math.max(existingAddedAt, nextAddedAt)
+            };
+
+            byKey.set(key, merged);
+        }
+
+        return Array.from(byKey.values());
+    }
+
+    function loadLocalSavedTorrents() {
+        if (!fs.existsSync(TORRENTS_FILE)) return [];
+        try {
+            const parsed = JSON.parse(fs.readFileSync(TORRENTS_FILE, 'utf-8'));
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+
     async function loadSavedTorrents() {
-        const cloudTorrents = await fetchFromCloud('torrents');
-        if (cloudTorrents) {
-            fs.writeFileSync(TORRENTS_FILE, JSON.stringify(cloudTorrents, null, 2));
-            return cloudTorrents;
-        }
-        if (fs.existsSync(TORRENTS_FILE)) {
-            try { return JSON.parse(fs.readFileSync(TORRENTS_FILE, 'utf-8')); } catch { return []; }
-        }
-        return [];
+        const localTorrents = loadLocalSavedTorrents();
+        const cloudRaw = await fetchFromCloud('torrents');
+        const cloudTorrents = Array.isArray(cloudRaw) ? cloudRaw : [];
+
+        const merged = dedupeSavedTorrents([...localTorrents, ...cloudTorrents]);
+
+        // Keep local file resilient even when cloud is stale or missing recent updates.
+        fs.writeFileSync(TORRENTS_FILE, JSON.stringify(merged, null, 2));
+        return merged;
     }
 
     function saveTorrentList() {
@@ -649,7 +746,8 @@ async function startServer() {
         return {
             path: downloadPath,
             announce: getAnnounceListForMagnet(magnet),
-            maxWebConns: 60,
+            maxWebConns: ENGINE_TORRENT_MAX_WEB_CONNS,
+            uploads: ENGINE_TORRENT_UPLOAD_SLOTS,
         };
     }
 
@@ -849,14 +947,17 @@ async function startServer() {
     }
 
     const ENGINE_VERBOSE = process.env.VORTEX_DEBUG === '1';
+    const ENGINE_MAX_CONNS = Math.max(120, Number(process.env.VORTEX_MAX_CONNS) || 800);
+    const ENGINE_TORRENT_UPLOAD_SLOTS = Math.max(8, Number(process.env.VORTEX_UPLOAD_SLOTS) || 40);
+    const ENGINE_TORRENT_MAX_WEB_CONNS = Math.max(20, Number(process.env.VORTEX_MAX_WEB_CONNS) || 120);
 
-    // ─── WebTorrent Client ─── (tuned for 150 Mbps)
+    // ─── WebTorrent Client ─── (tuned for higher seeding throughput)
     console.log('⏳ Initializing torrent engine...');
     const WebTorrent = WebTorrentModule; // Use the pre-imported module from top of file
     let client;
     try {
         client = new WebTorrent({
-            maxConns: 500,       // Allow wider swarm fanout on fast links
+            maxConns: ENGINE_MAX_CONNS,
             dht: {
                 bootstrap: [
                     'router.bittorrent.com:6881',
@@ -1767,44 +1868,51 @@ async function startServer() {
             }
         }
 
-        // 3. WebTorrent fallback — try metadata from peers (10s timeout)
+        // 3. WebTorrent fallback — use an isolated throwaway client so preview
+        // never pollutes the main downloads list.
         try {
             const fileList = await new Promise((resolve, reject) => {
-                const timer = setTimeout(() => {
-                    reject(new Error('timeout'));
-                }, 10000);
-                try {
-                    const tempTorrent = client.add(result._magnet, { path: path.join(os.tmpdir(), 'vortex-preview'), destroyStoreOnDestroy: true }, (torrent) => {
-                        clearTimeout(timer);
-                        const files = (torrent.files || []).map(f => ({ name: f.name, size: f.length, path: f.path }));
-                        try { client.remove(torrent.infoHash, { destroyStore: true }); } catch { }
-                        resolve({ name: torrent.name, files });
-                    });
-                    if (tempTorrent) {
-                        tempTorrent.on('error', (err) => {
-                            clearTimeout(timer);
-                            // Duplicate torrent — try reading from existing
-                            if (infoHash) {
-                                const existing = client.torrents.find(t => t.infoHash === infoHash);
-                                if (existing && existing.files && existing.files.length > 0) {
-                                    resolve({ name: existing.name, files: existing.files.map(f => ({ name: f.name, size: f.length, path: f.path })) });
-                                    return;
-                                }
-                            }
-                            reject(err);
-                        });
-                    }
-                } catch (e) {
-                    clearTimeout(timer);
-                    // Duplicate torrent error — try reading
-                    if (infoHash) {
-                        const existing = client.torrents.find(t => t.infoHash === infoHash);
-                        if (existing && existing.files && existing.files.length > 0) {
-                            resolve({ name: existing.name, files: existing.files.map(f => ({ name: f.name, size: f.length, path: f.path })) });
+                const previewClient = new WebTorrentModule();
+                let tempTorrent = null;
+                let settled = false;
+
+                const cleanup = () => {
+                    try {
+                        if (tempTorrent?.infoHash) {
+                            previewClient.remove(tempTorrent.infoHash, { destroyStore: true }, () => {
+                                try { previewClient.destroy(() => { }); } catch { }
+                            });
                             return;
                         }
+                    } catch { }
+                    try { previewClient.destroy(() => { }); } catch { }
+                };
+
+                const finish = (err, payload) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    cleanup();
+                    if (err) return reject(err);
+                    resolve(payload);
+                };
+
+                const timer = setTimeout(() => finish(new Error('timeout')), 10000);
+
+                try {
+                    tempTorrent = previewClient.add(result._magnet, {
+                        path: path.join(os.tmpdir(), 'vortex-preview'),
+                        destroyStoreOnDestroy: true,
+                    }, (torrent) => {
+                        const files = (torrent.files || []).map(f => ({ name: f.name, size: f.length, path: f.path }));
+                        finish(null, { name: torrent.name || result.title, files });
+                    });
+
+                    if (tempTorrent) {
+                        tempTorrent.on('error', (err) => finish(err));
                     }
-                    reject(e);
+                } catch (e) {
+                    finish(e);
                 }
             });
             return res.json(fileList);
@@ -2851,6 +2959,7 @@ async function startServer() {
         console.log(`\n⚡ Vortex Backend on http://localhost:${PORT}`);
         console.log(`📂 Downloads → ${settings.downloadPath}`);
         console.log(`🔍 Providers: ${enabledProviders.join(', ')}`);
+        console.log(`🌐 Swarm Tuning: maxConns=${ENGINE_MAX_CONNS} uploadSlots=${ENGINE_TORRENT_UPLOAD_SLOTS} maxWebConns=${ENGINE_TORRENT_MAX_WEB_CONNS}`);
         console.log(`⚡ DL Limit: ${settings.globalDownloadLimit || '∞'} MB/s | UL Limit: ${settings.globalUploadLimit || '∞'} MB/s\n`);
     });
 }

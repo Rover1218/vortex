@@ -388,7 +388,7 @@ export default function DownloadsPage() {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-3 shrink-0">
-                                            {!isDone && (t.downloadSpeed > 0 || t.uploadSpeed > 0) && (
+                                            {(t.downloadSpeed > 0 || t.uploadSpeed > 0) && (
                                                 <div className="text-right text-[11px] font-mono space-y-0.5">
                                                     {t.downloadSpeed > 0 && <div className="flex items-center justify-end gap-1 text-teal"><IconDown />{formatSpeed(t.downloadSpeed)}</div>}
                                                     {t.uploadSpeed > 0 && <div className="flex items-center justify-end gap-1 text-text-3"><IconUp />{formatSpeed(t.uploadSpeed)}</div>}

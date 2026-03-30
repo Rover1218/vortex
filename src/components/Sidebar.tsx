@@ -17,7 +17,7 @@ const NAV_ITEMS = [
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { diskInfo, torrents, totalDownloadSpeed, lifetimeDownloaded, lifetimeSeeded } = useTorrents();
+  const { diskInfo, torrents, totalDownloadSpeed, totalUploadSpeed, lifetimeDownloaded, lifetimeSeeded } = useTorrents();
   const { user, signOut } = useAuth();
 
   const handleLogout = async () => {
@@ -88,13 +88,16 @@ export default function Sidebar() {
         </nav>
 
         {/* Live speed indicator */}
-        {totalDownloadSpeed > 0 && (
+        {(totalDownloadSpeed > 0 || totalUploadSpeed > 0) && (
           <div className="p-3 bg-accent/6 rounded-xl border border-accent/12">
             <div className="flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-teal animate-pulse-glow" />
               <span className="text-[10px] font-bold text-text-3 uppercase tracking-wider">Live</span>
             </div>
-            <div className="text-sm font-mono font-bold text-white mt-1">↓ {formatSpeed(totalDownloadSpeed)}</div>
+            <div className="mt-1 space-y-0.5 text-sm font-mono font-bold">
+              {totalDownloadSpeed > 0 && <div className="text-white">↓ {formatSpeed(totalDownloadSpeed)}</div>}
+              {totalUploadSpeed > 0 && <div className="text-teal">↑ {formatSpeed(totalUploadSpeed)}</div>}
+            </div>
           </div>
         )}
 
