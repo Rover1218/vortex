@@ -40,6 +40,8 @@ interface ChatMessage {
     role: 'bot' | 'user';
     text: string;
     suggestions?: string[];
+    contextTags?: string[];
+    suggestionItems?: { title: string; reason?: string }[];
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3001';
@@ -47,16 +49,21 @@ const INITIAL_CHAT_MESSAGES: ChatMessage[] = [
     {
         role: 'bot',
         text: 'Need help finding a movie? Tell me mood, language, or a similar title.',
-        suggestions: ['mind bending sci-fi', 'best korean thriller', 'feel-good movie']
+        suggestions: ['Inception', 'Parasite', 'Spirited Away'],
+        suggestionItems: [
+            { title: 'Inception', reason: 'Mind-bending sci-fi thriller with layered twists.' },
+            { title: 'Parasite', reason: 'Top-tier Korean thriller with social tension.' },
+            { title: 'Spirited Away', reason: 'All-time anime classic with rich world-building.' },
+        ]
     }
 ];
 
 export default function SearchPage() {
     const {
         searchResults, searchLogs, searchQuery, setSearchQuery,
-        searchCategory, setSearchCategory,
         isSearching, doSearch, cancelSearch, clearSearch, getSuggestions,
         searchPosters: posters, setSearchPosters: setPosters,
+        isEngineConnected,
         addMagnet,
     } = useTorrents();
 
@@ -252,6 +259,20 @@ export default function SearchPage() {
         return ['oppenheimer', 'interstellar', 'breaking bad', 'the dark knight'];
     };
 
+    const deriveContextTags = (prompt: string) => {
+        const p = (prompt || '').toLowerCase();
+        const tags: string[] = [];
+        if (/anime|japanese|japan/.test(p)) tags.push('anime');
+        if (/korean|k-drama/.test(p)) tags.push('korean');
+        if (/hindi|bollywood|indian/.test(p)) tags.push('hindi');
+        if (/thriller|crime|mystery|suspense/.test(p)) tags.push('thriller');
+        if (/romance|love/.test(p)) tags.push('romance');
+        if (/sci|space|mind|time|future/.test(p)) tags.push('sci-fi');
+        if (/feel|happy|light|comfort/.test(p)) tags.push('feel-good');
+        if (tags.length === 0) tags.push('movie picks');
+        return tags.slice(0, 3);
+    };
+
     const extractQueryHint = (input: string) => {
         const stripped = input
             .replace(/\b(find|search|movie|movies|show|shows|series|like|similar|recommend|suggest|please|watch|something|good|best|me|for|to|a|an|the)\b/gi, ' ')
@@ -260,34 +281,112 @@ export default function SearchPage() {
         return stripped.length >= 2 ? stripped : input.trim();
     };
 
+    const uniqueSuggestions = (values: string[]) => {
+        const normalizeTitle = (value: string) => value
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const value of values) {
+            const cleaned = String(value || '').trim();
+            if (!cleaned) continue;
+            const key = normalizeTitle(cleaned);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(cleaned);
+            if (out.length >= 6) break;
+        }
+        return out;
+    };
+
+    const toSuggestionItems = (titles: string[], tags: string[]) => {
+        return titles.slice(0, 5).map(title => ({
+            title,
+            reason: tags.includes('sci-fi')
+                ? 'High-concept sci-fi with memorable world-building.'
+                : tags.includes('thriller')
+                    ? 'Suspense-first pick with strong tension.'
+                    : tags.includes('feel-good')
+                        ? 'Comfort-watch tone and easy pacing.'
+                        : 'Strong match for your request and easy to search.',
+        }));
+    };
+
     const fetchChatSuggestions = useCallback(async (message: string) => {
+        const normalizeTitle = (value: string) => value
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
         let picks: string[] = [];
         let reply = 'Try one of these titles. Tap to search instantly.';
+        let contextTags: string[] = [];
+        let suggestionItems: { title: string; reason?: string }[] = [];
+
+        const history = chatMessages
+            .slice(-8)
+            .map(m => ({ role: m.role, text: m.text }))
+            .filter(m => m.text && m.text.trim().length > 0);
+
+        const avoid = uniqueSuggestions(
+            chatMessages
+                .flatMap(m => (m.suggestionItems?.map(item => item.title) || m.suggestions || []))
+                .slice(-40)
+        );
+        const avoidSet = new Set(avoid.map(s => normalizeTitle(s)));
 
         try {
             const aiRes = await fetch('/api/movie-helper', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message }),
+                body: JSON.stringify({ message, history, avoid }),
             });
 
             if (aiRes.ok) {
                 const aiData = await aiRes.json();
                 if (Array.isArray(aiData?.suggestions)) picks = aiData.suggestions.slice(0, 5);
                 if (typeof aiData?.reply === 'string' && aiData.reply.trim()) reply = aiData.reply.trim();
+                if (Array.isArray(aiData?.contextTags)) contextTags = aiData.contextTags.slice(0, 3);
+                if (Array.isArray(aiData?.suggestionItems)) {
+                    suggestionItems = aiData.suggestionItems
+                        .map((item: any) => ({
+                            title: String(item?.title || '').trim(),
+                            reason: String(item?.reason || '').trim(),
+                        }))
+                        .filter((item: any) => item.title)
+                        .slice(0, 5);
+                }
             }
         } catch {
             // Fallback below handles API failures.
         }
 
+        picks = uniqueSuggestions(picks).filter(s => !avoidSet.has(normalizeTitle(s)));
+
         if (picks.length === 0) {
             const hint = extractQueryHint(message).slice(0, 80);
             const live = hint.length >= 2 ? await getSuggestions(hint) : [];
-            picks = (live && live.length > 0 ? live : buildFallbackSuggestions(message)).slice(0, 5);
+            const mergedFallback = uniqueSuggestions([
+                ...(Array.isArray(live) ? live : []),
+                ...buildFallbackSuggestions(message),
+                ...buildFallbackSuggestions(message.split(' ').reverse().join(' ')),
+            ]);
+            picks = mergedFallback.filter(s => !avoidSet.has(normalizeTitle(s))).slice(0, 5);
         }
 
-        return { picks, reply };
-    }, [getSuggestions]);
+        if (contextTags.length === 0) contextTags = deriveContextTags(message);
+        if (suggestionItems.length === 0) suggestionItems = toSuggestionItems(picks, contextTags);
+
+        // Align item ordering with final picks and drop avoided titles.
+        const itemMap = new Map(suggestionItems.map(item => [normalizeTitle(item.title), item]));
+        suggestionItems = picks.map(title => itemMap.get(normalizeTitle(title)) || { title, reason: 'Matches your prompt and search intent.' });
+
+        return { picks, reply, contextTags, suggestionItems };
+    }, [chatMessages, getSuggestions]);
 
     const handleChatSend = useCallback(async () => {
         const message = chatInput.trim();
@@ -299,24 +398,29 @@ export default function SearchPage() {
         setChatBusy(true);
 
         try {
-            const { picks, reply } = await fetchChatSuggestions(message);
+            const { picks, reply, contextTags, suggestionItems } = await fetchChatSuggestions(message);
 
             setChatMessages(prev => [
                 ...prev,
                 {
                     role: 'bot',
                     text: picks.length > 0 ? reply : 'Could not find good matches. Try adding actor name, genre, or year.',
-                    suggestions: picks
+                    suggestions: picks,
+                    contextTags,
+                    suggestionItems,
                 }
             ]);
         } catch {
             const fallback = buildFallbackSuggestions(message).slice(0, 5);
+            const contextTags = deriveContextTags(message);
             setChatMessages(prev => [
                 ...prev,
                 {
                     role: 'bot',
                     text: 'I had trouble reaching suggestions right now. Try these picks:',
-                    suggestions: fallback
+                    suggestions: fallback,
+                    contextTags,
+                    suggestionItems: toSuggestionItems(fallback, contextTags),
                 }
             ]);
         } finally {
@@ -336,6 +440,10 @@ export default function SearchPage() {
         if (!chatScrollRef.current) return;
         chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }, [chatMessages, chatOpen]);
+
+    useEffect(() => {
+        if (!isEngineConnected) setChatOpen(false);
+    }, [isEngineConnected]);
 
     const handleClear = () => {
         clearSearch();
@@ -1095,7 +1203,7 @@ export default function SearchPage() {
             )}
 
             {/* Movie Helper Chatbot */}
-            {chatMounted && createPortal(
+            {chatMounted && isEngineConnected && createPortal(
                 <div className="fixed bottom-5 right-5 z-[220] w-[340px] max-w-[calc(100vw-1.5rem)]">
                     {chatOpen ? (
                         <div className="rounded-2xl border border-white/[0.1] bg-[#0f1024]/95 backdrop-blur-md shadow-[0_22px_60px_-28px_rgba(0,0,0,0.9)] overflow-hidden">
@@ -1132,7 +1240,32 @@ export default function SearchPage() {
                                             }`}>
                                             {m.text}
                                         </div>
-                                        {m.suggestions && m.suggestions.length > 0 && (
+                                        {m.role === 'bot' && m.contextTags && m.contextTags.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {m.contextTags.map(tag => (
+                                                    <span
+                                                        key={`${idx}-tag-${tag}`}
+                                                        className="px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-accent/12 border border-accent/20 text-accent/90"
+                                                    >
+                                                        {tag}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {m.suggestionItems && m.suggestionItems.length > 0 ? (
+                                            <div className="space-y-1.5">
+                                                {m.suggestionItems.map((item) => (
+                                                    <button
+                                                        key={`${idx}-${item.title}`}
+                                                        onClick={() => applyChatSearch(item.title)}
+                                                        className="w-full text-left px-2.5 py-2 rounded-lg border bg-teal/10 border-teal/25 hover:bg-teal/16 transition-all"
+                                                    >
+                                                        <div className="text-[11px] font-bold text-teal truncate">{item.title}</div>
+                                                        <div className="text-[10px] text-text-2 mt-0.5 truncate">{item.reason || 'Strong match for your prompt.'}</div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ) : m.suggestions && m.suggestions.length > 0 ? (
                                             <div className="flex flex-wrap gap-1.5">
                                                 {m.suggestions.map((s) => (
                                                     <button
@@ -1144,7 +1277,7 @@ export default function SearchPage() {
                                                     </button>
                                                 ))}
                                             </div>
-                                        )}
+                                        ) : null}
                                     </div>
                                 ))}
                             </div>
