@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 
 const NAV_ITEMS = [
   { label: "Search", href: "/search", icon: "🔍" },
+  { label: "Release Radar", href: "/release-radar", icon: "📅" },
   { label: "Downloads", href: "/downloads", icon: "📥" },
   { label: "Library", href: "/library", icon: "🎬" },
   { label: "Leaderboard", href: "/leaderboard", icon: "🏆" },

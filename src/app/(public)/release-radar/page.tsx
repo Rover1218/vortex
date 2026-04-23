@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
+import RefreshRadarButton from "@/components/RefreshRadarButton";
+import RadarAuthButton from "@/components/RadarAuthButton";
 
 export const revalidate = 300;
 export const runtime = "nodejs";
@@ -33,6 +36,12 @@ type Chip = {
 const DAY_KEYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 const ANIME_BUCKETS = ["Romance", "Action", "Fantasy", "Slice of Life", "Drama", "Sci-Fi", "Mystery", "Sports", "Other"] as const;
 const MAX_RENDER_ITEMS_PER_BUCKET = 8;
+const FETCH_TIMEOUT_MS = 9000;
+const FETCH_RETRIES = 2;
+const LAST_GOOD_JSON = new Map<string, any>();
+const LAST_GOOD_GRAPHQL = new Map<string, any>();
+const MANUAL_REFRESH_COOLDOWN_MS = 30000;
+let lastManualRefreshAt = 0;
 
 function stripHtml(value?: string | null) {
     return String(value || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
@@ -238,29 +247,67 @@ function mergeAnimeCollections(upcomingItems: AnimeItem[], nowItems: AnimeItem[]
 }
 
 async function fetchJson(url: string) {
-    try {
-        const res = await fetch(url, { next: { revalidate } });
-        if (!res.ok) return null;
-        return res.json();
-    } catch {
-        return null;
+    for (let attempt = 0; attempt <= FETCH_RETRIES; attempt += 1) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+        try {
+            const res = await fetch(url, { next: { revalidate }, signal: controller.signal });
+
+            if (res.ok) {
+                const parsed = await res.json();
+                LAST_GOOD_JSON.set(url, parsed);
+                return parsed;
+            }
+            if (res.status !== 429 && res.status < 500) return null;
+        } catch {
+            // retry on network/timeout errors
+        } finally {
+            clearTimeout(timeout);
+        }
+
+        if (attempt < FETCH_RETRIES) {
+            await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+        }
     }
+
+    return LAST_GOOD_JSON.get(url) ?? null;
 }
 
 async function fetchGraphQL(url: string, query: string, variables: Record<string, unknown>) {
-    try {
-        const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query, variables }),
-            next: { revalidate },
-        });
+    const key = `${url}:${JSON.stringify(variables)}`;
 
-        if (!res.ok) return null;
-        return res.json();
-    } catch {
-        return null;
+    for (let attempt = 0; attempt <= FETCH_RETRIES; attempt += 1) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+        try {
+            const res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ query, variables }),
+                next: { revalidate },
+                signal: controller.signal,
+            });
+
+            if (res.ok) {
+                const parsed = await res.json();
+                LAST_GOOD_GRAPHQL.set(key, parsed);
+                return parsed;
+            }
+            if (res.status !== 429 && res.status < 500) return null;
+        } catch {
+            // retry on network/timeout errors
+        } finally {
+            clearTimeout(timeout);
+        }
+
+        if (attempt < FETCH_RETRIES) {
+            await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+        }
     }
+
+    return LAST_GOOD_GRAPHQL.get(key) ?? null;
 }
 
 async function getJikanUpcomingAnime(): Promise<AnimeItem[]> {
@@ -430,6 +477,14 @@ function AccordionSection<T extends { key: string }>({
 }
 
 export default async function ReleaseRadarPage() {
+    async function refreshRadar() {
+        "use server";
+        const now = Date.now();
+        if (now - lastManualRefreshAt < MANUAL_REFRESH_COOLDOWN_MS) return;
+        lastManualRefreshAt = now;
+        revalidatePath("/release-radar");
+    }
+
     const [jikanUpcoming, jikanWeekly, aniListNow, aniListNext] = await Promise.all([
         getJikanUpcomingAnime(),
         getJikanNowAiringAnime(),
@@ -453,6 +508,13 @@ export default async function ReleaseRadarPage() {
         .map(bucket => ({ ...bucket, items: bucket.items.slice(0, MAX_RENDER_ITEMS_PER_BUCKET) }));
 
     const nowLabel = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" }).format(new Date());
+    const sourceSnapshot = [
+        `Jikan upcoming: ${jikanUpcoming.length}`,
+        `Jikan weekly: ${jikanWeekly.length}`,
+        `AniList now: ${aniListNow.length}`,
+        `AniList next: ${aniListNext.length}`,
+    ].join(" • ");
+
     return (
         <div className="min-h-screen bg-base text-text-1">
             <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
@@ -466,9 +528,12 @@ export default async function ReleaseRadarPage() {
                     </div>
                 </Link>
 
-                <Link href="/login" className="rounded-xl bg-gradient-to-r from-accent to-teal px-5 py-2.5 text-sm font-bold text-white shadow-[0_18px_30px_-20px_rgba(57,160,255,0.95)]">
-                    Sign In
-                </Link>
+                <div className="flex items-center gap-2">
+                    <form action={refreshRadar}>
+                        <RefreshRadarButton />
+                    </form>
+                    <RadarAuthButton />
+                </div>
             </header>
 
             <main className="relative z-10 mx-auto max-w-7xl px-6 pb-16">
@@ -488,6 +553,7 @@ export default async function ReleaseRadarPage() {
                             <p className="mt-4 max-w-3xl text-base leading-relaxed text-text-2 md:text-lg">
                                 Merged from Jikan and AniList, then shaped into a premium radar with clean genre buckets, consistent episode labels, and a strong visual hierarchy.
                             </p>
+                            <p className="mt-3 text-sm text-text-3">Source snapshot: {sourceSnapshot}</p>
                         </div>
 
                         <div className="mt-8 grid gap-4 sm:grid-cols-3">

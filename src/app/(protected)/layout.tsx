@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { TorrentProvider } from "@/context/TorrentContext";
 import EngineStatusOverlay from "@/components/EngineStatusOverlay";
+import MobileBlocker from "@/components/MobileBlocker";
 
 export default function ProtectedLayout({
   children,
@@ -47,16 +48,18 @@ export default function ProtectedLayout({
   }
 
   return (
-    <TorrentProvider>
-      <div className="flex min-h-screen overflow-x-hidden">
-        <Sidebar />
-        <main className="flex-1 ml-60 min-h-screen px-8 py-6 relative">
-          <div key={key} className="perf-auto page-enter-active">
-            {children}
-          </div>
-          <EngineStatusOverlay />
-        </main>
-      </div>
-    </TorrentProvider>
+    <MobileBlocker>
+      <TorrentProvider>
+        <div className="flex min-h-screen overflow-x-hidden">
+          <Sidebar />
+          <main className="flex-1 ml-60 min-h-screen px-8 py-6 relative">
+            <div key={key} className="perf-auto page-enter-active">
+              {children}
+            </div>
+            <EngineStatusOverlay />
+          </main>
+        </div>
+      </TorrentProvider>
+    </MobileBlocker>
   );
 }
