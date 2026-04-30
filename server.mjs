@@ -31,7 +31,7 @@ const parseTorrent = pt.default || pt;
 
 const WebTorrentModule = WebTorrentImport.default || WebTorrentImport;
 
-const VERSION = "0.1.5";
+const VERSION = "0.1.6";
 // For testing locally, it will try localhost:3000 if the Vercel site is not deployed with the proxy yet.
 let PROXY_URL = 'https://vortex-movies.vercel.app/api/sync';
 
@@ -235,8 +235,15 @@ async function startServer() {
     logDashboardInfo();
 
     // ─── Idle Heartbeat (Auto-Close) ───
+    // When running inside the Electron desktop shell (VORTEX_DESKTOP_SHELL=true),
+    // skip idle auto-shutdown — Electron owns the process lifetime and will kill us
+    // on app quit. Without this, the engine exits after 10 min with no socket
+    // connections (the desktop shell uses HTTP polling, not sockets), causing the
+    // "Offline — Network error" that appears after ~30-40 minutes.
+    const IS_DESKTOP_SHELL = process.env.VORTEX_DESKTOP_SHELL === 'true';
     let idleTimer = null;
     function resetIdleTimer() {
+        if (IS_DESKTOP_SHELL) return; // Electron manages lifetime — never idle-shutdown
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
             const socketCount = io ? io.engine.clientsCount : 0;

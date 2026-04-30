@@ -21,6 +21,8 @@ const DASHBOARD_URL = process.env.VORTEX_DASHBOARD_URL || "https://vortex-movies
 let engineProcess = null;
 let mainWindow = null;
 let tray = null;
+let engineRestartEnabled = true;  // set false on intentional quit
+let engineRestartCount = 0;
 
 // Auto-Start is configured inside whenReady() below
 
@@ -168,33 +170,65 @@ async function launchEngineHidden() {
     const args = [];
     const isExe = enginePath && enginePath.toLowerCase().endsWith(".exe");
 
+    let proc = null;
     if (enginePath && fs.existsSync(enginePath) && isExe) {
-        engineProcess = spawn(enginePath, args, {
+        proc = spawn(enginePath, args, {
             windowsHide: true,
             detached: false,
             stdio: "ignore",
             env: {
                 ...process.env,
                 VORTEX_PROD: "true",
+                // Tell the engine it is inside the desktop shell — disables idle auto-shutdown
+                VORTEX_DESKTOP_SHELL: "true",
             },
         });
     } else if (fs.existsSync(serverPath)) {
         const nodeBin = process.env.npm_node_execpath || process.execPath || "node";
-        engineProcess = spawn(nodeBin, [serverPath, ...args], {
+        proc = spawn(nodeBin, [serverPath, ...args], {
             windowsHide: true,
             detached: false,
             stdio: "ignore",
             env: {
                 ...process.env,
                 VORTEX_PROD: "true",
+                VORTEX_DESKTOP_SHELL: "true",
             },
         });
     } else {
         return null;
     }
 
-    engineProcess.unref?.();
-    return engineProcess;
+    engineProcess = proc;
+
+    // Auto-restart the engine if it exits unexpectedly (e.g., idle-shutdown after 10 min)
+    proc.on('exit', (code, signal) => {
+        console.log(`[Engine] Process exited (code=${code}, signal=${signal})`);
+        engineProcess = null;
+
+        if (!engineRestartEnabled) return;
+        if (engineRestartCount >= 20) {
+            console.error('[Engine] Too many restarts — giving up.');
+            return;
+        }
+
+        const delay = Math.min(3000, 500 + engineRestartCount * 300);
+        engineRestartCount++;
+        console.log(`[Engine] Restarting in ${delay}ms (attempt ${engineRestartCount})...`);
+
+        setTimeout(async () => {
+            if (!engineRestartEnabled) return;
+            await launchEngineHidden();
+            // Wait for the port to come back up
+            await waitForPort(ENGINE_PORT, '127.0.0.1', 15000);
+            engineRestartCount = Math.max(0, engineRestartCount - 1); // credit back on success
+            if (tray) tray.setToolTip('Vortex — Engine running');
+            console.log('[Engine] Restarted successfully.');
+        }, delay);
+    });
+
+    proc.unref?.();
+    return proc;
 }
 
 function createDesktopUiWindow(engineReady) {
@@ -403,6 +437,7 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
     console.log('Before quit - cleaning up engine process');
+    engineRestartEnabled = false; // Prevent auto-restart on intentional quit
     try {
         if (engineProcess && !engineProcess.killed) {
             engineProcess.kill();
