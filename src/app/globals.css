@@ -45,13 +45,13 @@ body {
 
 /* Generic performance helpers for long scrolling pages */
 .perf-auto {
-  contain: layout style paint;
+  /* content-visibility without layout containment to avoid clipping issues */
 }
 
 @supports (content-visibility: auto) {
   .perf-auto {
     content-visibility: auto;
-    contain-intrinsic-size: 1px 900px;
+    contain-intrinsic-size: 1px 600px;
   }
 }
 

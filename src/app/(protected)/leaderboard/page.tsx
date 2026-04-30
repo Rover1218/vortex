@@ -77,7 +77,7 @@ export default function LeaderboardPage() {
     }, [rows]);
 
     return (
-        <div className="max-w-6xl mx-auto space-y-6 pb-10 relative">
+        <div className="w-full max-w-full space-y-6 pb-10 relative overflow-x-hidden">
             <div className="pointer-events-none absolute -top-10 right-[-8%] h-56 w-56 rounded-full bg-accent/10 blur-2xl" />
             <header className="relative rounded-3xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] px-6 py-5 overflow-hidden">
                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(124,106,255,0.12),transparent_55%)]" />

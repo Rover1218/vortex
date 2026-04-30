@@ -288,7 +288,7 @@ export default function DownloadsPage() {
     const EmptyIcon = activeTab === "Paused" ? IconPauseCircle : activeTab === "Completed" ? IconCheckCircle : IconInbox;
 
     return (
-        <div className="max-w-6xl mx-auto space-y-6 pb-10 relative px-1 sm:px-0 isolate">
+        <div className="w-full max-w-full space-y-6 pb-10 relative isolate overflow-x-hidden">
             <div className="pointer-events-none absolute -top-14 left-0 h-72 w-72 rounded-full bg-accent/10 blur-2xl" />
             <div className="pointer-events-none absolute top-40 right-0 h-80 w-80 rounded-full bg-teal/8 blur-2xl" />
 

@@ -333,7 +333,7 @@ export default function LibraryPage() {
     }, [library, sep]);
 
     return (
-        <div className="max-w-6xl mx-auto space-y-8 pb-10 relative px-1 sm:px-0 overflow-x-hidden isolate">
+        <div className="w-full max-w-full space-y-8 pb-10 relative overflow-x-hidden isolate">
             <div className="pointer-events-none absolute -top-16 left-0 h-72 w-72 rounded-full bg-accent/12 blur-3xl" />
             <div className="pointer-events-none absolute top-40 right-0 h-72 w-72 rounded-full bg-teal/10 blur-3xl" />
 

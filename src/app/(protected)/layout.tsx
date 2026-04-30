@@ -44,10 +44,10 @@ export default function ProtectedLayout({
   return (
     <MobileBlocker>
       <TorrentProvider>
-        <div className="flex min-h-screen overflow-x-hidden">
+        <div className="flex min-h-screen overflow-x-hidden bg-base">
           <Sidebar />
-          <main className="flex-1 ml-60 min-h-screen px-8 py-6 relative">
-            <div key={pathname} className="perf-auto page-enter-active">
+          <main className="flex-1 min-w-0 ml-60 min-h-screen px-6 py-6 relative overflow-x-hidden">
+            <div key={pathname} className="page-enter-active max-w-full">
               {children}
             </div>
             <EngineStatusOverlay />
