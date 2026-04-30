@@ -72,6 +72,7 @@ export default function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={false}
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium relative group border ${isActive
                   ? "bg-gradient-to-r from-accent/18 to-accent/5 text-white border-accent/25 shadow-[0_10px_30px_-18px_rgba(118,105,255,0.9)]"
                   : "text-text-2 border-white/[0.02] hover:text-white hover:bg-white/[0.04] hover:border-white/[0.08]"

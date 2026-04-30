@@ -42,6 +42,7 @@ const LAST_GOOD_JSON = new Map<string, any>();
 const LAST_GOOD_GRAPHQL = new Map<string, any>();
 const MANUAL_REFRESH_COOLDOWN_MS = 30000;
 let lastManualRefreshAt = 0;
+const MIN_NOW_AIRING_TARGET = 70;
 
 function stripHtml(value?: string | null) {
     return String(value || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
@@ -318,14 +319,25 @@ async function getJikanUpcomingAnime(): Promise<AnimeItem[]> {
 
 async function getJikanNowAiringAnime(): Promise<AnimeItem[]> {
     const pages = await Promise.all(DAY_KEYS.map(day => fetchJson(`https://api.jikan.moe/v4/schedules?filter=${day}&sfw=true&limit=25`)));
-    const items = pages.flatMap(page => (Array.isArray(page?.data) ? page.data : [])).map(item => extractAnimeItem(item, "Jikan Schedule"));
-    return uniqueBy(items, item => item.key).slice(0, 70);
+    const scheduleItems = pages.flatMap(page => (Array.isArray(page?.data) ? page.data : [])).map(item => extractAnimeItem(item, "Jikan Schedule"));
+
+    // If schedule pages are partially unavailable, top up from Jikan's now-season feed.
+    if (scheduleItems.length < MIN_NOW_AIRING_TARGET) {
+        const nowSeasonPages = await Promise.all([1, 2, 3, 4].map(page => fetchJson(`https://api.jikan.moe/v4/seasons/now?page=${page}&limit=25`)));
+        const seasonItems = nowSeasonPages
+            .flatMap(page => (Array.isArray(page?.data) ? page.data : []))
+            .map(item => extractAnimeItem(item, "Jikan Now"));
+
+        return uniqueBy([...scheduleItems, ...seasonItems], item => item.key).slice(0, 120);
+    }
+
+    return uniqueBy(scheduleItems, item => item.key).slice(0, 120);
 }
 
 async function getAniListSeasonAnime(kind: "now" | "next"): Promise<AnimeItem[]> {
     const query = `
-    query ($season: MediaSeason, $seasonYear: Int, $type: MediaType) {
-      Page(perPage: 50) {
+        query ($season: MediaSeason, $seasonYear: Int, $type: MediaType, $page: Int) {
+            Page(page: $page, perPage: 50) {
         media(season: $season, seasonYear: $seasonYear, type: $type, sort: [POPULARITY_DESC, SCORE_DESC]) {
           id
           title { romaji english }
@@ -351,11 +363,23 @@ async function getAniListSeasonAnime(kind: "now" | "next"): Promise<AnimeItem[]>
     const targetSeason = kind === "now" ? season : nextSeason;
     const targetYear = kind === "now" ? year : season === "FALL" ? year : year + 1;
 
-    const data = await fetchGraphQL("https://graphql.anilist.co", query, { season: targetSeason, seasonYear: targetYear, type: "ANIME" });
-    const items: AnimeItem[] = Array.isArray(data?.data?.Page?.media)
-        ? data.data.Page.media.map((item: any) => extractAnimeItem({ ...item, title: item.title, url: item.siteUrl }, `AniList ${kind}`))
-        : [];
-    return uniqueBy(items, item => item.key).slice(0, 50);
+    const pageIndexes = kind === "now" ? [1, 2] : [1];
+    const payloads = await Promise.all(
+        pageIndexes.map(page =>
+            fetchGraphQL("https://graphql.anilist.co", query, {
+                season: targetSeason,
+                seasonYear: targetYear,
+                type: "ANIME",
+                page,
+            }),
+        ),
+    );
+
+    const items: AnimeItem[] = payloads
+        .flatMap(data => (Array.isArray(data?.data?.Page?.media) ? data.data.Page.media : []))
+        .map((item: any) => extractAnimeItem({ ...item, title: item.title, url: item.siteUrl }, `AniList ${kind}`));
+
+    return uniqueBy(items, item => item.key).slice(0, 100);
 }
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint: string }) {

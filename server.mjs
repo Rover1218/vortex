@@ -31,7 +31,7 @@ const parseTorrent = pt.default || pt;
 
 const WebTorrentModule = WebTorrentImport.default || WebTorrentImport;
 
-const VERSION = "0.1.4";
+const VERSION = "0.1.5";
 // For testing locally, it will try localhost:3000 if the Vercel site is not deployed with the proxy yet.
 let PROXY_URL = 'https://vortex-movies.vercel.app/api/sync';
 
@@ -221,21 +221,8 @@ async function startServer() {
 
     // ─── Windows Protocol Registration (Auto-Open) ───
     function registerProtocol() {
-        if (process.platform !== 'win32') return;
-        try {
-            const exePath = process.argv[0] || process.execPath;
-            const commands = [
-                `reg add "HKCU\\Software\\Classes\\vortex" /ve /d "URL:Vortex Protocol" /f`,
-                `reg add "HKCU\\Software\\Classes\\vortex" /v "URL Protocol" /d "" /f`,
-                `reg add "HKCU\\Software\\Classes\\vortex\\shell\\open\\command" /ve /d "\\"${exePath}\\" \\"%1\\"" /f`
-            ];
-            commands.forEach(cmd => {
-                try { execSync(cmd, { stdio: 'ignore' }); } catch (e) { }
-            });
-            console.log('[System] ✓ Magic Launch protocol synced');
-        } catch (e) {
-            console.warn('[System] Protocol registration failed:', e.message);
-        }
+        // Disabled: Protocol handled exclusively by Electron Desktop Shell to prevent overwriting
+        return;
     }
 
     // ─── Auto-Open Dashboard (Disabled on request, just logging URL) ───
@@ -1200,6 +1187,38 @@ async function startServer() {
     // ═══════════════════════════════════
     //  API ROUTES
     // ═══════════════════════════════════
+
+    app.get('/api/desktop-status', (req, res) => {
+        const torrents = Array.isArray(client?.torrents) ? client.torrents : [];
+        const activeCount = torrents.filter(t => t?.progress > 0 && t?.progress < 1).length;
+        const seedingCount = torrents.filter(t => t?.progress === 1).length;
+        const pausedCount = pausedTorrents.size;
+        const completedCount = completedTorrents.size;
+        const downloadSpeed = client?.downloadSpeed || 0;
+        const uploadSpeed = client?.uploadSpeed || 0;
+
+        res.json({
+            ok: true,
+            engineVersion: VERSION,
+            connected: true,
+            downloadPath: settings.downloadPath,
+            totalDownloadSpeed: downloadSpeed,
+            totalUploadSpeed: uploadSpeed,
+            torrentCount: torrents.length + pausedCount + completedCount,
+            activeCount,
+            seedingCount,
+            pausedCount,
+            completedCount,
+            lifetimeTotals,
+            topDownloads: torrents.slice(0, 5).map(t => ({
+                name: t.name || namesMap.get(t.infoHash) || getNameFromMagnet(magnetsByHash.get(t.infoHash)) || 'Loading metadata...',
+                progress: Math.round((t.progress || 0) * 100),
+                status: t.progress === 1 ? 'Seeding' : 'Downloading',
+                downloaded: t.downloaded || 0,
+                totalLength: t.length || 0,
+            })),
+        });
+    });
 
     app.get('/api/settings', verifyUser, (req, res) => res.json(settings));
     app.post('/api/settings', verifyUser, (req, res) => {

@@ -8,14 +8,28 @@ export default function EngineStatusOverlay() {
     const { isEngineConnected, engineVersion } = useTorrents();
     const [mounted, setMounted] = useState(false);
     const [detectedOutdatedVersion, setDetectedOutdatedVersion] = useState(false);
+    const [storedEngineVersion, setStoredEngineVersion] = useState<string | null>(null);
 
     useEffect(() => {
         setMounted(true);
+
+        try {
+            const savedVersion = window.localStorage.getItem("vortex:last-engine-version");
+            if (savedVersion) setStoredEngineVersion(savedVersion);
+        } catch {
+            // ignore storage failures
+        }
     }, []);
 
     // Track if we've ever detected an outdated version to prevent modal flickering
     useEffect(() => {
         if (isEngineConnected && engineVersion) {
+            try {
+                window.localStorage.setItem("vortex:last-engine-version", engineVersion);
+            } catch {
+                // ignore storage failures
+            }
+
             // Only mark as outdated if we have a version AND it doesn't match
             if (engineVersion !== LATEST_ENGINE_VERSION) {
                 setDetectedOutdatedVersion(true);
@@ -27,11 +41,18 @@ export default function EngineStatusOverlay() {
         // If version is null but connected, don't set outdated yet - wait for version
     }, [isEngineConnected, engineVersion]);
 
+    useEffect(() => {
+        if (engineVersion) {
+            setStoredEngineVersion(engineVersion);
+        }
+    }, [engineVersion]);
+
     if (!mounted) return null;
 
     // Determine which modal to show - prioritize outdated version
-    const shouldShowOutdatedModal = detectedOutdatedVersion;
-    const shouldShowOfflineModal = !isEngineConnected && !detectedOutdatedVersion;
+    const rememberedVersion = engineVersion || storedEngineVersion;
+    const shouldShowOutdatedModal = detectedOutdatedVersion || (rememberedVersion !== null && rememberedVersion !== LATEST_ENGINE_VERSION && (!isEngineConnected || !!engineVersion));
+    const shouldShowOfflineModal = !isEngineConnected && !shouldShowOutdatedModal;
 
     if (!shouldShowOutdatedModal && !shouldShowOfflineModal) return null;
 
@@ -62,8 +83,8 @@ export default function EngineStatusOverlay() {
                     {shouldShowOutdatedModal ? "Update Required" : "Vortex Engine Offline"}
                 </h2>
                 <p className="text-text-2 mb-8 text-sm leading-relaxed">
-                    {shouldShowOutdatedModal && engineVersion
-                        ? `Your engine version (${engineVersion}) is outdated. Please download the latest version (${LATEST_ENGINE_VERSION}) to continue using Vortex safely.`
+                    {shouldShowOutdatedModal && rememberedVersion
+                        ? `Your engine version (${rememberedVersion}) is outdated. Please download the latest version (${LATEST_ENGINE_VERSION}) to continue using Vortex safely.`
                         : "The background torrent engine is not running or unreachable. You need the standalone engine to safely search, download, and manage your torrents."
                     }
                 </p>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
+import { DOWNLOAD_LINK, LATEST_ENGINE_VERSION } from "@/constants/version";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -91,6 +92,28 @@ export default function LandingPage() {
         </div>
 
         <p className="text-xs text-text-3 mb-16">No credit card required · Free forever · 2-click setup</p>
+
+        <div className="w-full max-w-2xl mb-16 rounded-3xl border border-white/[0.08] bg-white/[0.03] px-5 py-4 text-left shadow-2xl shadow-black/20 backdrop-blur-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-text-3 mb-2">Engine Version</div>
+              <div className="text-lg font-black text-white">Latest release {LATEST_ENGINE_VERSION}</div>
+              <p className="text-sm text-text-2 mt-1">If your desktop engine is older, the protected dashboard will show the install-latest modal automatically.</p>
+            </div>
+            <div className="flex flex-col sm:items-end gap-2">
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-bold">
+                Update Ready
+              </span>
+              <button
+                onClick={() => window.open(DOWNLOAD_LINK, "_blank")}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-accent to-[#8b7aff] text-white text-sm font-bold shadow-lg shadow-accent/20 hover:shadow-accent/35 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                Download latest engine
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2h7v7M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </button>
+            </div>
+          </div>
+        </div>
 
         {/* Dashboard Preview */}
         <div className="w-full max-w-4xl relative animate-fade-up [animation-delay:300ms] [animation-fill-mode:both]">

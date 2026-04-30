@@ -1,0 +1,234 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vortex Desktop</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Inter, system-ui, sans-serif;
+        background:
+          radial-gradient(circle at 20% 20%, rgba(124,106,255,0.18), transparent 24%),
+          radial-gradient(circle at 80% 30%, rgba(31,214,163,0.14), transparent 22%),
+          linear-gradient(160deg, #09091f 0%, #0b1020 55%, #09091f 100%);
+        color: #fff;
+        overflow: hidden;
+      }
+      .shell { height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+      .panel {
+        width: min(1024px, 100%); height: 90vh;
+        border-radius: 32px; border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(9,9,31,0.72); backdrop-filter: blur(22px);
+        box-shadow: 0 30px 100px rgba(0,0,0,0.45);
+        overflow: hidden; display: flex; flex-direction: column;
+      }
+      .topbar { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+      .brand { display: flex; align-items: center; gap: 14px; }
+      .logo { width: 46px; height: 46px; border-radius: 16px; display: grid; place-items: center; background: linear-gradient(135deg, #7c6aff 0%, #39a0ff 55%, #1fd6a3 100%); font-weight: 900; font-size: 20px; box-shadow: 0 16px 32px rgba(57,160,255,0.22); }
+      .title { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
+      .subtitle { font-size: 12px; color: rgba(236,240,255,0.52); margin-top: 2px; }
+      .content { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 20px; padding: 20px; flex: 1; overflow: hidden; }
+      .hero { padding: 26px; border-radius: 26px; background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); border: 1px solid rgba(255,255,255,0.06); }
+      .eyebrow { display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: rgba(236,240,255,0.7); }
+      .dot { width: 9px; height: 9px; border-radius: 999px; }
+      h1 { margin: 18px 0 10px; font-size: 52px; line-height: 0.98; letter-spacing: -0.05em; }
+      p { margin: 0; color: rgba(236,240,255,0.68); line-height: 1.6; font-size: 15px; }
+      .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+      .notice { margin-top: 16px; min-height: 46px; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.03); color: rgba(236,240,255,0.72); font-size: 13px; line-height: 1.5; opacity: 0; transform: translateY(4px); transition: opacity 180ms ease, transform 180ms ease; }
+      .notice.show { opacity: 1; transform: translateY(0); }
+      button, a.btn { appearance: none; border: 0; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 14px 18px; border-radius: 16px; font-weight: 800; font-size: 14px; transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease; }
+      button:hover, a.btn:hover { transform: translateY(-1px); }
+      .primary { color: #fff; background: linear-gradient(90deg, #7c6aff, #39a0ff, #1fd6a3); box-shadow: 0 18px 34px rgba(57,160,255,0.18); }
+      .secondary { color: #fff; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); }
+      .side { display: grid; gap: 14px; max-height: 100%; overflow-y: auto; flex: 1; }
+      .side::-webkit-scrollbar { width: 6px; }
+      .side::-webkit-scrollbar-track { background: transparent; }
+      .side::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+      .card { padding: 18px; border-radius: 22px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); }
+      .card.stack { display: grid; gap: 12px; }
+      .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: rgba(236,240,255,0.5); margin-bottom: 10px; }
+      .status { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: linear-gradient(90deg, rgba(124,106,255,0.14), rgba(31,214,163,0.10)); border: 1px solid rgba(255,255,255,0.06); font-weight: 700; }
+      .pill { display: inline-flex; padding: 7px 10px; border-radius: 999px; background: rgba(255,255,255,0.05); color: rgba(236,240,255,0.72); font-size: 12px; margin: 4px 6px 0 0; }
+      .metric-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border-radius: 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.05); }
+      .metric-name { color: rgba(236,240,255,0.62); font-size: 12px; }
+      .metric-value { color: #fff; font-size: 13px; font-weight: 800; text-align: right; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .download-item { padding: 12px 12px 13px; border-radius: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); }
+      .download-top { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+      .download-name { color: #fff; font-weight: 700; line-height: 1.35; }
+      .download-state { color: rgba(236,240,255,0.56); white-space: nowrap; }
+      .bar-track { width: 100%; height: 8px; border-radius: 999px; background: rgba(255,255,255,0.05); overflow: hidden; margin-bottom: 8px; }
+      .bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #7c6aff, #39a0ff, #1fd6a3); transition: width 240ms ease; }
+      .downloads-empty { padding: 18px 12px; border-radius: 16px; border: 1px dashed rgba(255,255,255,0.09); color: rgba(236,240,255,0.52); font-size: 13px; line-height: 1.5; }
+      .footer { padding: 12px 20px; color: rgba(236,240,255,0.42); font-size: 11px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.04); }
+      .dot-teal { background: #1fd6a3; }
+      .dot-amber { background: #f59e0b; }
+      @media (max-width: 860px) { .content { grid-template-columns: 1fr; } h1 { font-size: 38px; } }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="panel">
+        <div class="topbar">
+          <div class="brand">
+            <div class="logo">V</div>
+            <div>
+              <div class="title">Vortex Desktop</div>
+              <div class="subtitle">Engine launcher and private torrent shell</div>
+            </div>
+          </div>
+          <div class="status">
+            <span class="dot" id="topbar-dot"></span>
+            <span id="topbar-label">Checking...</span>
+          </div>
+        </div>
+
+        <div class="content">
+          <section class="hero">
+            <div class="eyebrow">
+              <span class="dot" id="eyebrow-dot"></span>
+              <span id="eyebrow-label">Starting up</span>
+            </div>
+            <h1>Private torrent control, without the console window.</h1>
+            <p>
+              The background engine runs hidden, while this desktop shell gives you a proper UI.
+              It is not loading the website inside the EXE anymore.
+            </p>
+            <div class="actions">
+              <a class="btn secondary" id="dashboard-link" href="#" target="_blank" rel="noreferrer">Open dashboard in browser</a>
+            </div>
+            <div id="engine-notice" class="notice">The engine is already running in the background. No terminal window will open from this desktop shell.</div>
+          </section>
+
+          <aside class="side">
+            <div class="card stack">
+              <div class="label">What runs inside the EXE</div>
+              <div class="pill">Hidden engine</div>
+              <div class="pill">Local status UI</div>
+              <div class="pill">No website embed</div>
+            </div>
+
+            <div class="card stack">
+              <div class="label">Live engine status</div>
+              <div class="metric-row"><span class="metric-name">Connection</span><span id="status-connected" class="metric-value">Checking...</span></div>
+              <div class="metric-row"><span class="metric-name">Torrents</span><span id="status-torrents" class="metric-value">—</span></div>
+              <div class="metric-row"><span class="metric-name">Downloading</span><span id="status-downloading" class="metric-value">—</span></div>
+              <div class="metric-row"><span class="metric-name">Speed</span><span id="status-speed" class="metric-value">—</span></div>
+              <div class="metric-row"><span class="metric-name">Download path</span><span id="status-path" class="metric-value">—</span></div>
+            </div>
+
+            <div class="card stack">
+              <div class="label">Current downloads</div>
+              <div id="status-downloads" class="downloads-empty">Waiting for engine data...</div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="footer">
+          <span id="footer-port">Engine port —</span>
+          <span>Desktop shell mode</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Config injected by main process via executeJavaScript before load
+      var VORTEX_STATUS_URL = '';
+      var VORTEX_ENGINE_READY = false;
+      var VORTEX_DASHBOARD_URL = '';
+      var VORTEX_ENGINE_PORT = 3001;
+
+      function applyConfig() {
+        var dotClass = VORTEX_ENGINE_READY ? 'dot-teal' : 'dot-amber';
+        var labelText = VORTEX_ENGINE_READY ? 'Engine connected and ready' : 'Engine starting in background';
+        var eyebrowText = VORTEX_ENGINE_READY ? 'Ready to use' : 'Starting up';
+
+        document.getElementById('topbar-dot').className = 'dot ' + dotClass;
+        document.getElementById('topbar-label').textContent = labelText;
+        document.getElementById('eyebrow-dot').className = 'dot ' + dotClass;
+        document.getElementById('eyebrow-label').textContent = eyebrowText;
+        document.getElementById('dashboard-link').href = VORTEX_DASHBOARD_URL;
+        document.getElementById('footer-port').textContent = 'Engine port ' + VORTEX_ENGINE_PORT;
+      }
+
+      function formatBytes(bytes) {
+        var value = Number(bytes || 0);
+        if (!value) return '0 B';
+        var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        var index = Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024)));
+        return (value / Math.pow(1024, index)).toFixed(1) + ' ' + units[index];
+      }
+
+      function formatSpeed(bytes) {
+        return formatBytes(bytes || 0) + '/s';
+      }
+
+      function setOffline(msg) {
+        document.getElementById('status-connected').textContent = 'Offline — ' + msg;
+        document.getElementById('status-torrents').textContent = '—';
+        document.getElementById('status-downloading').textContent = '—';
+        document.getElementById('status-speed').textContent = '—';
+        document.getElementById('status-path').textContent = '—';
+        var el = document.getElementById('status-downloads');
+        if (el) { el.className = 'downloads-empty'; el.textContent = 'Engine not reachable. Retrying...'; }
+      }
+
+      function loadStatus() {
+        if (!VORTEX_STATUS_URL) return;
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', VORTEX_STATUS_URL, true);
+        xhr.timeout = 5000;
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.onload = function() {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            document.getElementById('status-connected').textContent = data.connected ? 'Connected \u2713' : 'Offline';
+            document.getElementById('status-torrents').textContent = String(data.torrentCount != null ? data.torrentCount : 0);
+            document.getElementById('status-downloading').textContent = String(data.activeCount != null ? data.activeCount : 0);
+            document.getElementById('status-speed').textContent = formatSpeed(data.totalDownloadSpeed || 0) + ' down / ' + formatSpeed(data.totalUploadSpeed || 0) + ' up';
+            document.getElementById('status-path').title = data.downloadPath || 'Not set';
+            document.getElementById('status-path').textContent = data.downloadPath || 'Not set';
+            var downloadsEl = document.getElementById('status-downloads');
+            if (!downloadsEl) return;
+            var items = Array.isArray(data.topDownloads) ? data.topDownloads : [];
+            if (!items.length) {
+              downloadsEl.className = 'downloads-empty';
+              downloadsEl.textContent = 'No active downloads.';
+              return;
+            }
+            downloadsEl.className = '';
+            downloadsEl.innerHTML = items.map(function(item) {
+              var progress = Math.max(0, Math.min(100, Number(item.progress || 0)));
+              var safeName = String(item.name || 'Unknown').replace(/[&<>"']/g, function(c) {
+                return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+              });
+              return '<div class="download-item"><div class="download-top"><div class="download-name">' + safeName + '</div>'
+                + '<div class="download-state">' + progress + '% \u00b7 ' + String(item.status || 'Downloading') + '</div></div>'
+                + '<div class="bar-track"><div class="bar-fill" style="width:' + progress + '%"></div></div>'
+                + '<div class="download-state">' + formatBytes(item.downloaded || 0) + ' / ' + formatBytes(item.totalLength || 0) + '</div></div>';
+            }).join('');
+          } catch(e) {
+            setOffline('Parse error: ' + e.message);
+          }
+        };
+        xhr.onerror = function() { setOffline('Network error'); };
+        xhr.ontimeout = function() { setOffline('Timeout'); };
+        xhr.send();
+      }
+
+      // Wait for config injection from main process, then start
+      window.__vortexInit = function(config) {
+        VORTEX_STATUS_URL = config.statusUrl;
+        VORTEX_ENGINE_READY = config.engineReady;
+        VORTEX_DASHBOARD_URL = config.dashboardUrl;
+        VORTEX_ENGINE_PORT = config.enginePort;
+        applyConfig();
+        loadStatus();
+        setInterval(loadStatus, 3000);
+      };
+    </script>
+  </body>
+</html>
