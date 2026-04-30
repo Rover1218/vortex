@@ -38,7 +38,7 @@ The frontend is built with Next.js 15 and can be deployed to Vercel in seconds.
 
 ### 2. Standalone Engine
 To start downloading, you need the **Vortex Engine** running on your computer.
-- **Download**: Get the latest `vortex.exe` from the [Official Release](https://github.com/Rover1218/vortex/releases/tag/Vortex).
+- **Download**: Get the latest installer from the [Official Release (v0.1.5)](https://github.com/Rover1218/vortex/releases/tag/0.1.5) — download `Vortex-Setup-0.1.0.exe`.
 - **Run**: Simply open the EXE. It will start a local server on port `3001` and automatically connect to your dashboard.
 
 ---
