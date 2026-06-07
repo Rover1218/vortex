@@ -49,7 +49,7 @@ interface TorrentContextType {
     cancelSearch: () => void;
     clearSearch: () => void;
     getSuggestions: (q: string) => Promise<string[]>;
-    addMagnet: (magnet: string) => Promise<void>;
+    addMagnet: (magnet: string) => Promise<{ infoHash?: string; name?: string } | void>;
     removeTorrent: (infoHash: string) => Promise<void>;
     pauseTorrent: (infoHash: string) => Promise<void>;
     resumeTorrent: (infoHash: string) => Promise<void>;
@@ -222,7 +222,9 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
 
     const addMagnet = async (magnet: string) => {
         try {
-            await axios.post(`${API_BASE}/api/torrents`, { magnet });
+            const res = await axios.post(`${API_BASE}/api/torrents`, { magnet });
+            // Returns { infoHash, name } so callers (e.g. Stream) know what was added.
+            return res.data as { infoHash?: string; name?: string };
         } catch (err) {
             console.error('Failed to add magnet:', err);
             throw err;

@@ -23,7 +23,7 @@ function formatBytes(bytes: number) {
 function ratioColor(ratio: number) {
     if (ratio >= 1) return "text-teal";
     if (ratio >= 0.5) return "text-warning";
-    return "text-red-400";
+    return "text-danger";
 }
 
 function formatRatio(ratio: number) {
@@ -77,32 +77,30 @@ export default function LeaderboardPage() {
     }, [rows]);
 
     return (
-        <div className="w-full max-w-full space-y-6 pb-10 relative overflow-x-hidden">
-            <div className="pointer-events-none absolute -top-10 right-[-8%] h-56 w-56 rounded-full bg-accent/10 blur-2xl" />
-            <header className="relative rounded-3xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] px-6 py-5 overflow-hidden">
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(124,106,255,0.12),transparent_55%)]" />
-                <h1 className="text-4xl font-black tracking-tight bg-gradient-to-r from-white to-text-2 bg-clip-text text-transparent">
+        <div className="w-full max-w-full space-y-6 pb-10 bg-base">
+            <header className="cine-card px-6 py-5">
+                <h1 className="cine-title text-4xl font-black tracking-tight text-text-1">
                     Leaderboard
                 </h1>
                 <p className="text-text-3 text-sm mt-1">Top users ranked by total seeded bytes.</p>
             </header>
 
             {loading ? (
-                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-8 text-center text-text-2">Loading leaderboard...</div>
+                <div className="cine-card p-8 text-center text-text-2">Loading leaderboard...</div>
             ) : error ? (
-                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-8 text-center text-red-300">{error}</div>
+                <div className="rounded-2xl border border-danger/30 bg-danger/10 p-8 text-center text-danger">{error}</div>
             ) : (
                 <>
                     <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] p-4">
+                        <div className="rounded-2xl border border-white/[0.06] bg-surface p-4">
                             <div className="text-[11px] uppercase tracking-wider text-text-3">Total Seeded</div>
                             <div className="text-2xl font-black text-teal mt-1">{formatBytes(totalSeeded)}</div>
                         </div>
-                        <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] p-4">
+                        <div className="rounded-2xl border border-white/[0.06] bg-surface p-4">
                             <div className="text-[11px] uppercase tracking-wider text-text-3">Total Downloaded</div>
-                            <div className="text-2xl font-black text-white mt-1">{formatBytes(totalDownloaded)}</div>
+                            <div className="text-2xl font-black text-text-1 mt-1">{formatBytes(totalDownloaded)}</div>
                         </div>
-                        <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] p-4">
+                        <div className="rounded-2xl border border-white/[0.06] bg-surface p-4">
                             <div className="text-[11px] uppercase tracking-wider text-text-3">Avg Ratio</div>
                             <div className={`text-2xl font-black mt-1 ${ratioColor(avgRatio)}`}>{formatRatio(avgRatio)}</div>
                         </div>
@@ -110,33 +108,40 @@ export default function LeaderboardPage() {
 
                     <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {topThree.map((row, i) => (
-                            <div key={row.uid} className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.06] to-white/[0.015] p-5 shadow-[0_14px_34px_-24px_rgba(109,98,255,0.65)]">
-                                <div className="text-xs uppercase tracking-wider text-text-3 mb-2">{i === 0 ? "🥇 Rank #1" : i === 1 ? "🥈 Rank #2" : "🥉 Rank #3"}</div>
-                                <div className="text-lg font-bold text-white truncate">{row.displayName}</div>
+                            <div
+                                key={row.uid}
+                                className={`rounded-2xl border p-5 shadow-cinema ${
+                                    i === 0
+                                        ? "border-accent/40 bg-elevated ring-1 ring-accent/20"
+                                        : "border-white/[0.06] bg-surface"
+                                }`}
+                            >
+                                <div className={`text-xs uppercase tracking-wider mb-2 ${i === 0 ? "text-accent" : "text-text-3"}`}>{i === 0 ? "🥇 Rank #1" : i === 1 ? "🥈 Rank #2" : "🥉 Rank #3"}</div>
+                                <div className="text-lg font-bold text-text-1 truncate">{row.displayName}</div>
                                 <div className="mt-3 text-sm text-text-2">Seeded: <span className="text-teal font-semibold">{formatBytes(row.seeded)}</span></div>
-                                <div className="text-sm text-text-2">Downloaded: <span className="text-white font-semibold">{formatBytes(row.downloaded)}</span></div>
+                                <div className="text-sm text-text-2">Downloaded: <span className="text-text-1 font-semibold">{formatBytes(row.downloaded)}</span></div>
                                 <div className="text-sm text-text-2">Ratio: <span className={`font-semibold ${ratioColor(row.ratio)}`}>{formatRatio(row.ratio)}</span></div>
                             </div>
                         ))}
                     </section>
 
-                    <section className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] overflow-hidden">
+                    <section className="rounded-2xl border border-white/[0.06] bg-surface overflow-hidden shadow-cinema">
                         <div className="overflow-x-auto">
                             <table className="w-full min-w-[720px] text-sm">
-                                <thead className="bg-white/[0.03] border-b border-white/[0.06] text-text-3">
+                                <thead className="bg-elevated border-b border-white/[0.06] text-text-3">
                                     <tr>
-                                        <th className="text-left px-5 py-3">Rank</th>
-                                        <th className="text-left px-5 py-3">User</th>
-                                        <th className="text-right px-5 py-3">Seeded</th>
-                                        <th className="text-right px-5 py-3">Downloaded</th>
-                                        <th className="text-right px-5 py-3">Ratio</th>
+                                        <th className="text-left px-5 py-3 font-medium">Rank</th>
+                                        <th className="text-left px-5 py-3 font-medium">User</th>
+                                        <th className="text-right px-5 py-3 font-medium">Seeded</th>
+                                        <th className="text-right px-5 py-3 font-medium">Downloaded</th>
+                                        <th className="text-right px-5 py-3 font-medium">Ratio</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {rows.map((row) => (
-                                        <tr key={row.uid} className="border-b border-white/[0.05] last:border-b-0 hover:bg-white/[0.02]">
-                                            <td className="px-5 py-3 font-mono text-white">#{row.rank}</td>
-                                            <td className="px-5 py-3 text-white truncate max-w-[280px]">{row.displayName}</td>
+                                        <tr key={row.uid} className="border-b border-white/[0.06] last:border-b-0 hover:bg-white/[0.02] transition-colors">
+                                            <td className={`px-5 py-3 font-mono ${row.rank === 1 ? "text-accent font-semibold" : "text-text-2"}`}>#{row.rank}</td>
+                                            <td className="px-5 py-3 text-text-1 truncate max-w-[280px]">{row.displayName}</td>
                                             <td className="px-5 py-3 text-right text-teal font-semibold">{formatBytes(row.seeded)}</td>
                                             <td className="px-5 py-3 text-right text-text-2">{formatBytes(row.downloaded)}</td>
                                             <td className={`px-5 py-3 text-right font-semibold ${ratioColor(row.ratio)}`}>{formatRatio(row.ratio)}</td>

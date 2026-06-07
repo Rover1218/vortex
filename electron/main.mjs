@@ -1,5 +1,5 @@
-import { app, BrowserWindow, shell, Tray, Menu, nativeImage } from "electron";
-import { spawn } from "child_process";
+import { app, BrowserWindow, shell, Tray, Menu, nativeImage, dialog } from "electron";
+import { spawn, spawnSync } from "child_process";
 import net from "net";
 import path from "path";
 import fs from "fs";
@@ -219,11 +219,19 @@ async function launchEngineHidden() {
         setTimeout(async () => {
             if (!engineRestartEnabled) return;
             await launchEngineHidden();
-            // Wait for the port to come back up
-            await waitForPort(ENGINE_PORT, '127.0.0.1', 15000);
-            engineRestartCount = Math.max(0, engineRestartCount - 1); // credit back on success
-            if (tray) tray.setToolTip('Vortex — Engine running');
-            console.log('[Engine] Restarted successfully.');
+            // Wait for the port to come back up. Only credit the counter back when
+            // the engine actually became reachable — otherwise a fast crash-loop
+            // (e.g. port held by an orphan) would keep crediting itself and defeat
+            // the give-up cap, spinning forever.
+            const came_up = await waitForPort(ENGINE_PORT, '127.0.0.1', 15000);
+            if (came_up) {
+                engineRestartCount = Math.max(0, engineRestartCount - 1);
+                if (tray) tray.setToolTip('Vortex — Engine running');
+                console.log('[Engine] Restarted successfully.');
+            } else {
+                console.error('[Engine] Restart did not become reachable within timeout.');
+                if (tray) tray.setToolTip('Vortex — Engine not responding');
+            }
         }, delay);
     });
 
@@ -245,9 +253,12 @@ function createDesktopUiWindow(engineReady) {
             ? path.join(process.resourcesPath, 'app.asar', 'public', 'icon.png')
             : path.join(__dirname, '..', 'public', 'icon.png'),
         webPreferences: {
-            contextIsolation: false,
-            sandbox: false,
-            webSecurity: false,
+            // Hardened: the renderer (ui.html) is pure DOM + XHR with no Node usage,
+            // so the secure defaults apply cleanly. nodeIntegration stays off.
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            webSecurity: true,
         },
         titleBarOverlay: {
             color: "#09091f",
@@ -265,22 +276,22 @@ function createDesktopUiWindow(engineReady) {
         console.error('Renderer gone:', details.reason);
     });
 
-    // Load the UI html file, then inject runtime config via JS
+    // Load the UI html file with runtime config passed as a query param. This is
+    // robust under contextIsolation — the page reads config from location.search
+    // rather than us reaching into the page's JS world via executeJavaScript.
     const uiPath = app.isPackaged
         ? path.join(process.resourcesPath, 'app.asar', 'electron', 'ui.html')
         : path.join(__dirname, 'ui.html');
 
-    mainWindow.loadFile(uiPath).then(() => {
-        const config = {
-            statusUrl: 'http://127.0.0.1:' + ENGINE_PORT + '/api/desktop-status',
-            engineReady: engineReady,
-            dashboardUrl: DASHBOARD_URL,
-            enginePort: ENGINE_PORT,
-        };
-        mainWindow.webContents.executeJavaScript(
-            'window.__vortexInit(' + JSON.stringify(config) + ')'
-        ).catch(err => console.error('executeJavaScript error:', err));
-    }).catch(err => console.error('loadFile error:', err));
+    const config = {
+        statusUrl: 'http://127.0.0.1:' + ENGINE_PORT + '/api/desktop-status',
+        engineReady: engineReady,
+        dashboardUrl: DASHBOARD_URL,
+        enginePort: ENGINE_PORT,
+    };
+
+    mainWindow.loadFile(uiPath, { query: { vortexConfig: JSON.stringify(config) } })
+        .catch(err => console.error('loadFile error:', err));
 
     mainWindow.on("closed", () => {
         mainWindow = null;
@@ -410,18 +421,65 @@ app.on('second-instance', () => {
     openMainWindow();
 });
 
+// Auto-update from GitHub releases. Only runs in packaged builds; the dependency
+// is imported dynamically so a dev run (or a missing dep) never crashes startup.
+async function setupAutoUpdate() {
+    if (!app.isPackaged) return;
+    try {
+        const mod = await import('electron-updater');
+        const autoUpdater = (mod.default || mod).autoUpdater;
+        autoUpdater.autoDownload = true;
+        autoUpdater.autoInstallOnAppQuit = true; // installs on next quit if user defers
+
+        autoUpdater.on('update-downloaded', async (info) => {
+            try {
+                const { response } = await dialog.showMessageBox({
+                    type: 'info',
+                    buttons: ['Restart now', 'Later'],
+                    defaultId: 0,
+                    cancelId: 1,
+                    title: 'Update ready',
+                    message: `Vortex ${info?.version || ''} is ready to install.`,
+                    detail: 'Restart to apply it now, or it will install automatically the next time you quit.',
+                });
+                if (response === 0) {
+                    engineRestartEnabled = false; // let the engine die cleanly on quit
+                    app.isQuiting = true;
+                    autoUpdater.quitAndInstall();
+                }
+            } catch { /* ignore */ }
+        });
+        autoUpdater.on('error', (err) => console.error('[AutoUpdate] error:', err?.message || err));
+
+        autoUpdater.checkForUpdates().catch(() => { });
+        // Re-check every 6h for long-running sessions.
+        setInterval(() => { autoUpdater.checkForUpdates().catch(() => { }); }, 6 * 60 * 60 * 1000);
+    } catch (e) {
+        console.error('[AutoUpdate] unavailable:', e?.message || e);
+    }
+}
+
 app.whenReady().then(async () => {
     app.setName('Vortex');
 
+    // Configure auto-start ONLY on first run. After that, respect whatever the
+    // user has chosen (e.g. disabling the entry via Task Manager). Forcing
+    // openAtLogin on every launch would silently re-enable a disabled entry.
     try {
-        app.setLoginItemSettings({
-            openAtLogin: true,
-            path: app.getPath('exe'),
-            args: ['--hidden']
-        });
+        const flagPath = path.join(app.getPath('userData'), '.autostart-configured');
+        if (!fs.existsSync(flagPath)) {
+            app.setLoginItemSettings({
+                openAtLogin: true,
+                path: app.getPath('exe'),
+                args: ['--hidden']
+            });
+            fs.writeFileSync(flagPath, '1');
+        }
     } catch { /* ignore on unsupported platforms */ }
 
     await createWindow();
+
+    setupAutoUpdate(); // check for app updates in the background (packaged only)
 
     app.on('activate', () => {
         // macOS: re-open window if dock icon clicked with no windows
@@ -439,8 +497,15 @@ app.on('before-quit', () => {
     console.log('Before quit - cleaning up engine process');
     engineRestartEnabled = false; // Prevent auto-restart on intentional quit
     try {
-        if (engineProcess && !engineProcess.killed) {
-            engineProcess.kill();
+        if (engineProcess && !engineProcess.killed && engineProcess.pid) {
+            if (process.platform === 'win32') {
+                // SIGTERM does not reliably kill a packaged (pkg) exe and its child
+                // threads on Windows, leaving an orphan that holds port 3001.
+                // taskkill /T terminates the whole process tree; /F forces it.
+                spawnSync('taskkill', ['/pid', String(engineProcess.pid), '/T', '/F'], { windowsHide: true });
+            } else {
+                engineProcess.kill();
+            }
         }
     } catch { /* ignore */ }
 });

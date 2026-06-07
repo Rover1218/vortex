@@ -5,134 +5,157 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vortex Desktop</title>
     <style>
-      :root { color-scheme: dark; }
+      @property --a { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+      :root { color-scheme: dark; --amber: #f5a623; --amber2: #ffc04d; --teal: #2dd4a7; }
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body {
         margin: 0;
-        min-height: 100vh;
-        font-family: Inter, system-ui, sans-serif;
-        background:
-          radial-gradient(circle at 20% 20%, rgba(124,106,255,0.18), transparent 24%),
-          radial-gradient(circle at 80% 30%, rgba(31,214,163,0.14), transparent 22%),
-          linear-gradient(160deg, #09091f 0%, #0b1020 55%, #09091f 100%);
-        color: #fff;
+        font-family: Inter, "Segoe UI", system-ui, sans-serif;
+        color: #f7f6f3;
+        background: #09090b;
         overflow: hidden;
       }
-      .shell { height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
-      .panel {
-        width: min(1024px, 100%); height: 90vh;
-        border-radius: 32px; border: 1px solid rgba(255,255,255,0.08);
-        background: rgba(9,9,31,0.72); backdrop-filter: blur(22px);
-        box-shadow: 0 30px 100px rgba(0,0,0,0.45);
-        overflow: hidden; display: flex; flex-direction: column;
+      /* Animated ambient background */
+      .bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
+      .bg::before, .bg::after {
+        content: ''; position: absolute; border-radius: 50%; filter: blur(90px); opacity: 0.5;
       }
-      .topbar { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid rgba(255,255,255,0.06); }
-      .brand { display: flex; align-items: center; gap: 14px; }
-      .logo { width: 46px; height: 46px; border-radius: 16px; display: grid; place-items: center; background: linear-gradient(135deg, #7c6aff 0%, #39a0ff 55%, #1fd6a3 100%); font-weight: 900; font-size: 20px; box-shadow: 0 16px 32px rgba(57,160,255,0.22); }
-      .title { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
-      .subtitle { font-size: 12px; color: rgba(236,240,255,0.52); margin-top: 2px; }
-      .content { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 20px; padding: 20px; flex: 1; overflow: hidden; }
-      .hero { padding: 26px; border-radius: 26px; background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); border: 1px solid rgba(255,255,255,0.06); }
-      .eyebrow { display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: rgba(236,240,255,0.7); }
-      .dot { width: 9px; height: 9px; border-radius: 999px; }
-      h1 { margin: 18px 0 10px; font-size: 52px; line-height: 0.98; letter-spacing: -0.05em; }
-      p { margin: 0; color: rgba(236,240,255,0.68); line-height: 1.6; font-size: 15px; }
-      .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
-      .notice { margin-top: 16px; min-height: 46px; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.03); color: rgba(236,240,255,0.72); font-size: 13px; line-height: 1.5; opacity: 0; transform: translateY(4px); transition: opacity 180ms ease, transform 180ms ease; }
-      .notice.show { opacity: 1; transform: translateY(0); }
-      button, a.btn { appearance: none; border: 0; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 14px 18px; border-radius: 16px; font-weight: 800; font-size: 14px; transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease; }
-      button:hover, a.btn:hover { transform: translateY(-1px); }
-      .primary { color: #fff; background: linear-gradient(90deg, #7c6aff, #39a0ff, #1fd6a3); box-shadow: 0 18px 34px rgba(57,160,255,0.18); }
-      .secondary { color: #fff; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); }
-      .side { display: grid; gap: 14px; max-height: 100%; overflow-y: auto; flex: 1; }
-      .side::-webkit-scrollbar { width: 6px; }
-      .side::-webkit-scrollbar-track { background: transparent; }
-      .side::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-      .card { padding: 18px; border-radius: 22px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); }
-      .card.stack { display: grid; gap: 12px; }
-      .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: rgba(236,240,255,0.5); margin-bottom: 10px; }
-      .status { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: linear-gradient(90deg, rgba(124,106,255,0.14), rgba(31,214,163,0.10)); border: 1px solid rgba(255,255,255,0.06); font-weight: 700; }
-      .pill { display: inline-flex; padding: 7px 10px; border-radius: 999px; background: rgba(255,255,255,0.05); color: rgba(236,240,255,0.72); font-size: 12px; margin: 4px 6px 0 0; }
-      .metric-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border-radius: 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.05); }
-      .metric-name { color: rgba(236,240,255,0.62); font-size: 12px; }
-      .metric-value { color: #fff; font-size: 13px; font-weight: 800; text-align: right; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .download-item { padding: 12px 12px 13px; border-radius: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); }
-      .download-top { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 12px; }
-      .download-name { color: #fff; font-weight: 700; line-height: 1.35; }
-      .download-state { color: rgba(236,240,255,0.56); white-space: nowrap; }
-      .bar-track { width: 100%; height: 8px; border-radius: 999px; background: rgba(255,255,255,0.05); overflow: hidden; margin-bottom: 8px; }
-      .bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #7c6aff, #39a0ff, #1fd6a3); transition: width 240ms ease; }
-      .downloads-empty { padding: 18px 12px; border-radius: 16px; border: 1px dashed rgba(255,255,255,0.09); color: rgba(236,240,255,0.52); font-size: 13px; line-height: 1.5; }
-      .footer { padding: 12px 20px; color: rgba(236,240,255,0.42); font-size: 11px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.04); }
-      .dot-teal { background: #1fd6a3; }
-      .dot-amber { background: #f59e0b; }
-      @media (max-width: 860px) { .content { grid-template-columns: 1fr; } h1 { font-size: 38px; } }
+      .bg::before { width: 60vw; height: 60vw; left: -10vw; top: -20vw; background: radial-gradient(circle, rgba(245,166,35,0.22), transparent 60%); animation: drift1 16s ease-in-out infinite; }
+      .bg::after { width: 45vw; height: 45vw; right: -8vw; bottom: -15vw; background: radial-gradient(circle, rgba(45,212,167,0.12), transparent 60%); animation: drift2 20s ease-in-out infinite; }
+      .grid { position: fixed; inset: 0; z-index: 0; opacity: 0.04;
+        background-image: linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px);
+        background-size: 44px 44px; mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, #000, transparent 75%); -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, #000, transparent 75%); }
+      @keyframes drift1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(6vw,4vw) scale(1.12); } }
+      @keyframes drift2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-5vw,-3vw) scale(1.1); } }
+      @keyframes spin { to { --a: 360deg; } }
+      @keyframes pulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+
+      .wrap { position: relative; z-index: 1; height: 100vh; max-width: 1000px; margin: 0 auto; padding: 22px 28px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
+      .wrap::-webkit-scrollbar { width: 6px; } .wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 6px; }
+
+      /* Top bar */
+      .bar { display: flex; align-items: center; justify-content: space-between; }
+      .brand { display: flex; align-items: center; gap: 13px; }
+      .logo { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(135deg, var(--amber), var(--amber2)); color: #09090b; font-weight: 900; font-size: 20px; box-shadow: 0 14px 34px -10px rgba(245,166,35,.6); }
+      .name { font-size: 19px; font-weight: 900; letter-spacing: -0.02em; }
+      .tag { font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase; color: rgba(247,246,243,.45); margin-top: 2px; }
+      .pill { display: inline-flex; align-items: center; gap: 9px; padding: 9px 15px; border-radius: 999px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.09); font-size: 12px; font-weight: 700; }
+      .dot { width: 9px; height: 9px; border-radius: 999px; box-shadow: 0 0 0 4px rgba(255,255,255,.04); }
+      .dot-teal { background: var(--teal); box-shadow: 0 0 12px 1px rgba(45,212,167,.6); animation: pulse 2s ease-in-out infinite; }
+      .dot-amber { background: var(--amber); box-shadow: 0 0 12px 1px rgba(245,166,35,.6); animation: pulse 2s ease-in-out infinite; }
+
+      /* Hero card with animated glow border */
+      .hero { position: relative; border-radius: 26px; padding: 30px; display: flex; align-items: center; gap: 30px; background: rgba(20,20,24,.72); border: 1px solid rgba(255,255,255,.07); backdrop-filter: blur(14px); overflow: hidden; }
+      .hero::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; background: conic-gradient(from var(--a), transparent 0deg, rgba(245,166,35,.7) 50deg, transparent 130deg); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; animation: spin 7s linear infinite; pointer-events: none; }
+      .orb { position: relative; width: 130px; height: 130px; flex: none; display: grid; place-items: center; }
+      .orb::before { content: ''; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from var(--a), var(--amber), rgba(245,166,35,.08), var(--amber)); animation: spin 4.5s linear infinite; -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px)); mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px)); }
+      .orb .inner { width: 112px; height: 112px; border-radius: 50%; background: #0e0e11; display: grid; place-items: center; text-align: center; box-shadow: inset 0 0 36px rgba(245,166,35,.14); }
+      .orb .pct { font-size: 13px; font-weight: 800; padding: 0 10px; line-height: 1.25; }
+      .hero-main { min-width: 0; }
+      .eyebrow { display: inline-flex; align-items: center; gap: 9px; padding: 6px 12px; border-radius: 999px; background: rgba(245,166,35,.1); border: 1px solid rgba(245,166,35,.22); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.18em; color: var(--amber2); }
+      h1 { margin: 16px 0 8px; font-size: 38px; line-height: 1.02; letter-spacing: -0.03em; font-weight: 900; }
+      h1 span { color: var(--amber); }
+      .hero-main p { margin: 0; color: rgba(247,246,243,.6); font-size: 14px; line-height: 1.6; max-width: 460px; }
+      .actions { margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap; }
+      a.btn, button { appearance: none; border: 0; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 9px; padding: 13px 20px; border-radius: 14px; font-weight: 800; font-size: 14px; transition: transform .18s ease, filter .18s ease; }
+      a.btn:hover { transform: translateY(-2px); }
+      .primary { color: #09090b; background: linear-gradient(135deg, var(--amber), var(--amber2)); box-shadow: 0 16px 34px -12px rgba(245,166,35,.65); }
+      .primary:hover { filter: brightness(1.06); }
+
+      /* Stat tiles */
+      .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+      .tile { padding: 18px; border-radius: 18px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); }
+      .tile .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.18em; color: rgba(247,246,243,.42); }
+      .tile .v { margin-top: 10px; font-size: 30px; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+      .tile.speed .v { font-size: 15px; font-weight: 800; color: var(--teal); }
+      .tile .v.amber { color: var(--amber); }
+
+      .pathline { display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(247,246,243,.5); padding: 0 4px; }
+      .pathline .mono { font-family: ui-monospace, "JetBrains Mono", monospace; color: rgba(247,246,243,.8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      /* Downloads */
+      .dl { border-radius: 20px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); padding: 18px; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+      .dl-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: rgba(247,246,243,.45); margin-bottom: 12px; }
+      #status-downloads { overflow-y: auto; display: grid; gap: 10px; }
+      #status-downloads::-webkit-scrollbar { width: 5px; } #status-downloads::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 5px; }
+      .download-item { padding: 13px 14px; border-radius: 14px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06); }
+      .download-top { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 9px; font-size: 12px; }
+      .download-name { font-weight: 700; line-height: 1.35; }
+      .download-state { color: rgba(247,246,243,.5); white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .bar-track { width: 100%; height: 6px; border-radius: 999px; background: rgba(255,255,255,.07); overflow: hidden; margin-bottom: 8px; }
+      .bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--amber), var(--amber2)); transition: width .3s ease; }
+      .downloads-empty { padding: 26px; text-align: center; border-radius: 14px; border: 1px dashed rgba(255,255,255,.1); color: rgba(247,246,243,.4); font-size: 13px; }
+
+      .foot { display: flex; justify-content: space-between; font-size: 11px; color: rgba(247,246,243,.35); padding: 0 4px 4px; }
+
+      @media (max-width: 720px) {
+        .hero { flex-direction: column; text-align: center; }
+        .stats { grid-template-columns: 1fr 1fr; }
+        h1 { font-size: 30px; }
+      }
     </style>
   </head>
   <body>
-    <div class="shell">
-      <div class="panel">
-        <div class="topbar">
-          <div class="brand">
-            <div class="logo">V</div>
-            <div>
-              <div class="title">Vortex Desktop</div>
-              <div class="subtitle">Engine launcher and private torrent shell</div>
-            </div>
-          </div>
-          <div class="status">
-            <span class="dot" id="topbar-dot"></span>
-            <span id="topbar-label">Checking...</span>
+    <div class="bg"></div>
+    <div class="grid"></div>
+
+    <main class="wrap">
+      <header class="bar">
+        <div class="brand">
+          <div class="logo">V</div>
+          <div>
+            <div class="name">VORTEX</div>
+            <div class="tag">Desktop Engine</div>
           </div>
         </div>
-
-        <div class="content">
-          <section class="hero">
-            <div class="eyebrow">
-              <span class="dot" id="eyebrow-dot"></span>
-              <span id="eyebrow-label">Starting up</span>
-            </div>
-            <h1>Private torrent control, without the console window.</h1>
-            <p>
-              The background engine runs hidden, while this desktop shell gives you a proper UI.
-              It is not loading the website inside the EXE anymore.
-            </p>
-            <div class="actions">
-              <a class="btn secondary" id="dashboard-link" href="#" target="_blank" rel="noreferrer">Open dashboard in browser</a>
-            </div>
-            <div id="engine-notice" class="notice">The engine is already running in the background. No terminal window will open from this desktop shell.</div>
-          </section>
-
-          <aside class="side">
-            <div class="card stack">
-              <div class="label">What runs inside the EXE</div>
-              <div class="pill">Hidden engine</div>
-              <div class="pill">Local status UI</div>
-              <div class="pill">No website embed</div>
-            </div>
-
-            <div class="card stack">
-              <div class="label">Live engine status</div>
-              <div class="metric-row"><span class="metric-name">Connection</span><span id="status-connected" class="metric-value">Checking...</span></div>
-              <div class="metric-row"><span class="metric-name">Torrents</span><span id="status-torrents" class="metric-value">—</span></div>
-              <div class="metric-row"><span class="metric-name">Downloading</span><span id="status-downloading" class="metric-value">—</span></div>
-              <div class="metric-row"><span class="metric-name">Speed</span><span id="status-speed" class="metric-value">—</span></div>
-              <div class="metric-row"><span class="metric-name">Download path</span><span id="status-path" class="metric-value">—</span></div>
-            </div>
-
-            <div class="card stack">
-              <div class="label">Current downloads</div>
-              <div id="status-downloads" class="downloads-empty">Waiting for engine data...</div>
-            </div>
-          </aside>
+        <div class="pill">
+          <span class="dot" id="topbar-dot"></span>
+          <span id="topbar-label">Checking…</span>
         </div>
+      </header>
 
-        <div class="footer">
-          <span id="footer-port">Engine port —</span>
-          <span>Desktop shell mode</span>
+      <section class="hero">
+        <div class="orb">
+          <div class="inner"><div class="pct" id="status-connected">Checking…</div></div>
         </div>
+        <div class="hero-main">
+          <div class="eyebrow">
+            <span class="dot" id="eyebrow-dot"></span>
+            <span id="eyebrow-label">Starting up</span>
+          </div>
+          <h1>Engine running <span>silently.</span></h1>
+          <p>Vortex powers your torrents quietly in the background. Open the dashboard in your browser to search, download, and stream.</p>
+          <div class="actions">
+            <a class="btn primary" id="dashboard-link" href="#" target="_blank" rel="noreferrer">
+              Open Dashboard
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="stats">
+        <div class="tile"><div class="k">Torrents</div><div class="v amber" id="status-torrents">—</div></div>
+        <div class="tile"><div class="k">Downloading</div><div class="v" id="status-downloading">—</div></div>
+        <div class="tile speed"><div class="k">Transfer Speed</div><div class="v" id="status-speed">—</div></div>
+      </section>
+
+      <div class="pathline">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Saving to <span class="mono" id="status-path">—</span>
       </div>
-    </div>
+
+      <section class="dl">
+        <div class="dl-head">Active Downloads</div>
+        <div id="status-downloads" class="downloads-empty">Waiting for engine data…</div>
+      </section>
+
+      <footer class="foot">
+        <span id="footer-port">Engine port —</span>
+        <span>Desktop shell · engine runs hidden</span>
+      </footer>
+    </main>
 
     <script>
       // Config injected by main process via executeJavaScript before load
@@ -167,13 +190,13 @@
       }
 
       function setOffline(msg) {
-        document.getElementById('status-connected').textContent = 'Offline — ' + msg;
+        document.getElementById('status-connected').textContent = 'Offline';
         document.getElementById('status-torrents').textContent = '—';
         document.getElementById('status-downloading').textContent = '—';
         document.getElementById('status-speed').textContent = '—';
         document.getElementById('status-path').textContent = '—';
         var el = document.getElementById('status-downloads');
-        if (el) { el.className = 'downloads-empty'; el.textContent = 'Engine not reachable. Retrying...'; }
+        if (el) { el.className = 'downloads-empty'; el.textContent = 'Engine not reachable. Retrying…'; }
       }
 
       function loadStatus() {
@@ -185,10 +208,10 @@
         xhr.onload = function() {
           try {
             var data = JSON.parse(xhr.responseText);
-            document.getElementById('status-connected').textContent = data.connected ? 'Connected \u2713' : 'Offline';
+            document.getElementById('status-connected').textContent = data.connected ? 'Connected ✓' : 'Offline';
             document.getElementById('status-torrents').textContent = String(data.torrentCount != null ? data.torrentCount : 0);
             document.getElementById('status-downloading').textContent = String(data.activeCount != null ? data.activeCount : 0);
-            document.getElementById('status-speed').textContent = formatSpeed(data.totalDownloadSpeed || 0) + ' down / ' + formatSpeed(data.totalUploadSpeed || 0) + ' up';
+            document.getElementById('status-speed').textContent = formatSpeed(data.totalDownloadSpeed || 0) + ' ↓  ' + formatSpeed(data.totalUploadSpeed || 0) + ' ↑';
             document.getElementById('status-path').title = data.downloadPath || 'Not set';
             document.getElementById('status-path').textContent = data.downloadPath || 'Not set';
             var downloadsEl = document.getElementById('status-downloads');
@@ -206,7 +229,7 @@
                 return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
               });
               return '<div class="download-item"><div class="download-top"><div class="download-name">' + safeName + '</div>'
-                + '<div class="download-state">' + progress + '% \u00b7 ' + String(item.status || 'Downloading') + '</div></div>'
+                + '<div class="download-state">' + progress + '% · ' + String(item.status || 'Downloading') + '</div></div>'
                 + '<div class="bar-track"><div class="bar-fill" style="width:' + progress + '%"></div></div>'
                 + '<div class="download-state">' + formatBytes(item.downloaded || 0) + ' / ' + formatBytes(item.totalLength || 0) + '</div></div>';
             }).join('');
@@ -219,16 +242,30 @@
         xhr.send();
       }
 
-      // Wait for config injection from main process, then start
-      window.__vortexInit = function(config) {
-        VORTEX_STATUS_URL = config.statusUrl;
-        VORTEX_ENGINE_READY = config.engineReady;
-        VORTEX_DASHBOARD_URL = config.dashboardUrl;
-        VORTEX_ENGINE_PORT = config.enginePort;
+      // Read runtime config passed by the main process via the load query string.
+      function startWithConfig(config) {
+        if (config) {
+          VORTEX_STATUS_URL = config.statusUrl;
+          VORTEX_ENGINE_READY = config.engineReady;
+          VORTEX_DASHBOARD_URL = config.dashboardUrl;
+          VORTEX_ENGINE_PORT = config.enginePort;
+        }
         applyConfig();
         loadStatus();
         setInterval(loadStatus, 3000);
-      };
+      }
+
+      (function init() {
+        var config = null;
+        try {
+          var raw = new URLSearchParams(window.location.search).get('vortexConfig');
+          if (raw) config = JSON.parse(raw);
+        } catch (e) { /* fall back to defaults */ }
+        startWithConfig(config);
+      })();
+
+      // Back-compat: still honor an injected init call if one is ever made.
+      window.__vortexInit = startWithConfig;
     </script>
   </body>
 </html>

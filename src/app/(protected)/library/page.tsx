@@ -36,21 +36,31 @@ interface SubResult {
     format: string; movieName: string; year: string; exact?: boolean;
 }
 
-const CATEGORY_ICONS: Record<string, string> = {
-    All: "🗂",
-    Folder: "📁",
-    Video: "🎬",
-    Audio: "🎵",
-    "App/Archive": "📦",
-    Other: "📄",
-};
+function CategoryIcon({ category, className }: { category: string; className?: string }) {
+    const cls = className ?? "w-5 h-5";
+    const common = { fill: "none", viewBox: "0 0 24 24", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, className: cls };
+    switch (category) {
+        case "Folder":
+            return (<svg {...common}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" /></svg>);
+        case "Video":
+            return (<svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M10 9l5 3-5 3V9Z" /></svg>);
+        case "Audio":
+            return (<svg {...common}><path d="M9 18V6l10-2v12" /><circle cx="6" cy="18" r="3" /><circle cx="16" cy="16" r="3" /></svg>);
+        case "App/Archive":
+            return (<svg {...common}><path d="M3 8l9-4 9 4-9 4-9-4Z" /><path d="M3 8v8l9 4 9-4V8" /><path d="M12 12v8" /></svg>);
+        case "All":
+            return (<svg {...common}><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>);
+        default:
+            return (<svg {...common}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" /><path d="M14 3v5h5" /></svg>);
+    }
+}
 
 const CATEGORY_COLORS: Record<string, string> = {
     Video: "text-teal bg-teal/10 border-teal/15",
     Audio: "text-accent bg-accent/10 border-accent/15",
-    "App/Archive": "text-orange-400 bg-orange-400/10 border-orange-400/15",
-    Folder: "text-blue-400 bg-blue-400/10 border-blue-400/15",
-    Other: "text-text-3 bg-white/5 border-white/10",
+    "App/Archive": "text-warning bg-warning/10 border-warning/15",
+    Folder: "text-accent bg-accent/10 border-accent/15",
+    Other: "text-text-3 bg-white/5 border-white/[0.06]",
 };
 
 const SORT_LABELS: Record<string, string> = {
@@ -224,6 +234,12 @@ export default function LibraryPage() {
         });
     }, [library]);
 
+    // Re-run poster fetching only when the SET of items changes, not on every
+    // library refresh. topLevel is recreated on each poll; depending on its
+    // reference aborted in-flight poster fetches before they finished, so posters
+    // would flicker / never appear. A name-signature dep avoids that churn.
+    const posterNamesKey = topLevel.map(i => i.name).join('|');
+
     // Fetch posters — TVmaze (TV/anime/drama) + iTunes (movies), shows skeleton while loading
     useEffect(() => {
         if (topLevel.length === 0) return;
@@ -277,7 +293,7 @@ export default function LibraryPage() {
             });
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [topLevel]);
+    }, [posterNamesKey]);
 
     const categories = useMemo(() => {
         const cats = ["All", ...Array.from(new Set(topLevel.map(i => i.category))).sort()];
@@ -334,32 +350,33 @@ export default function LibraryPage() {
 
     return (
         <div className="w-full max-w-full space-y-8 pb-10 relative overflow-x-hidden isolate">
-            <div className="pointer-events-none absolute -top-16 left-0 h-72 w-72 rounded-full bg-accent/12 blur-3xl" />
-            <div className="pointer-events-none absolute top-40 right-0 h-72 w-72 rounded-full bg-teal/10 blur-3xl" />
-
             {/* Header */}
-            <div className="relative z-10 flex items-end justify-between rounded-3xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] px-6 py-5">
+            <div className="relative z-10 flex items-end justify-between rounded-2xl border border-white/[0.06] bg-surface px-6 py-5 shadow-cinema">
                 <div>
-                    <h1 className="text-4xl font-black tracking-tight mb-1">
-                        <span className="bg-gradient-to-r from-white to-text-2 bg-clip-text text-transparent">Library</span>
-                    </h1>
+                    <h1 className="cine-title text-4xl font-black tracking-tight mb-1 text-text-1">Library</h1>
                     <p className="text-text-3 text-sm">
                         {loading ? "Loading…" : `${topLevel.length} items · ${formatSize(totalSize)}`}
                         {settings?.downloadPath && (
-                            <span className="ml-2 text-text-3/50">→ {settings.downloadPath}</span>
+                            <span className="ml-2 text-text-3">→ {settings.downloadPath}</span>
                         )}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <button onClick={() => setViewMode("grid")}
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all border ${viewMode === "grid" ? "bg-accent/15 text-accent border-accent/20" : "bg-white/[0.03] text-text-3 border-white/[0.06] hover:text-white"}`}
-                        title="Grid view">⊞</button>
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all border ${viewMode === "grid" ? "bg-accent text-black border-transparent" : "bg-elevated text-text-3 border-white/[0.06] hover:text-text-1"}`}
+                        title="Grid view">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+                    </button>
                     <button onClick={() => setViewMode("list")}
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all border ${viewMode === "list" ? "bg-accent/15 text-accent border-accent/20" : "bg-white/[0.03] text-text-3 border-white/[0.06] hover:text-white"}`}
-                        title="List view">☰</button>
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all border ${viewMode === "list" ? "bg-accent text-black border-transparent" : "bg-elevated text-text-3 border-white/[0.06] hover:text-text-1"}`}
+                        title="List view">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>
+                    </button>
                     <button onClick={() => { setLoading(true); fetchLibrary().finally(() => setLoading(false)); }}
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-white/[0.03] text-text-3 hover:text-white border border-white/[0.06] transition-all"
-                        title="Refresh">↻</button>
+                        className="w-9 h-9 rounded-xl flex items-center justify-center bg-elevated text-text-3 hover:text-text-1 border border-white/[0.06] transition-all"
+                        title="Refresh">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 4v4h-4" /></svg>
+                    </button>
                 </div>
             </div>
 
@@ -367,17 +384,17 @@ export default function LibraryPage() {
             {!loading && topLevel.length > 0 && (
                 <div className="space-y-3">
                     <div className="grid grid-cols-3 gap-3">
-                        <div className="rounded-2xl bg-gradient-to-br from-teal/12 to-transparent border border-teal/15 p-4">
-                            <div className="text-[10px] font-bold text-teal/60 uppercase tracking-widest mb-1">Total Files</div>
-                            <div className="text-2xl font-black text-white">{library.filter(i => !i.isDir).length}</div>
+                        <div className="rounded-2xl bg-surface border border-white/[0.06] p-4">
+                            <div className="text-[10px] font-bold text-text-3 uppercase tracking-widest mb-1">Total Files</div>
+                            <div className="text-2xl font-black text-text-1">{library.filter(i => !i.isDir).length}</div>
                         </div>
-                        <div className="rounded-2xl bg-gradient-to-br from-accent/12 to-transparent border border-accent/15 p-4">
-                            <div className="text-[10px] font-bold text-accent/60 uppercase tracking-widest mb-1">Videos</div>
-                            <div className="text-2xl font-black text-white">{videoCount}</div>
+                        <div className="rounded-2xl bg-surface border border-white/[0.06] p-4">
+                            <div className="text-[10px] font-bold text-accent uppercase tracking-widest mb-1">Videos</div>
+                            <div className="text-2xl font-black text-text-1">{videoCount}</div>
                         </div>
-                        <div className="rounded-2xl bg-gradient-to-br from-purple-500/12 to-transparent border border-purple-500/15 p-4">
-                            <div className="text-[10px] font-bold text-purple-400/60 uppercase tracking-widest mb-1">Total Size</div>
-                            <div className="text-2xl font-black text-white">{formatSize(totalSize)}</div>
+                        <div className="rounded-2xl bg-surface border border-white/[0.06] p-4">
+                            <div className="text-[10px] font-bold text-text-3 uppercase tracking-widest mb-1">Total Size</div>
+                            <div className="text-2xl font-black text-text-1">{formatSize(totalSize)}</div>
                         </div>
                     </div>
                     {diskInfo && diskInfo.total > 0 && (() => {
@@ -385,21 +402,21 @@ export default function LibraryPage() {
                         const freePct = 100 - usedPct;
                         const fmtD = (b: number) => { const k = 1024, u = ["B", "KB", "MB", "GB", "TB"]; const i = Math.floor(Math.log(Math.max(b, 1)) / Math.log(k)); return (b / Math.pow(k, i)).toFixed(1) + " " + u[i]; };
                         return (
-                            <div className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] px-5 py-4 space-y-2 backdrop-blur-sm shadow-[0_20px_48px_-30px_rgba(82,133,255,0.45)]">
+                            <div className="rounded-2xl bg-surface border border-white/[0.06] px-5 py-4 space-y-2">
                                 <div className="flex justify-between items-baseline">
-                                    <span className="text-[10px] font-bold text-text-3/60 uppercase tracking-widest">Disk Usage</span>
+                                    <span className="text-[10px] font-bold text-text-3 uppercase tracking-widest">Disk Usage</span>
                                     <div className="flex items-baseline gap-2 text-[11px] font-mono">
                                         <span className="text-text-3">{fmtD(diskInfo.used)} used</span>
-                                        <span className="text-text-3/40">/</span>
+                                        <span className="text-text-3">/</span>
                                         <span className="text-text-2 font-bold">{fmtD(diskInfo.total)}</span>
-                                        <span className={`font-black ${freePct < 10 ? 'text-red-400' : freePct < 25 ? 'text-warning' : 'text-teal'}`}>· {fmtD(diskInfo.free)} free</span>
+                                        <span className={`font-black ${freePct < 10 ? 'text-danger' : freePct < 25 ? 'text-warning' : 'text-teal'}`}>· {fmtD(diskInfo.free)} free</span>
                                     </div>
                                 </div>
-                                <div className="h-2 bg-white/[0.05] rounded-full overflow-hidden">
-                                    <div className={`h-full rounded-full transition-all duration-700 ${usedPct > 90 ? 'bg-gradient-to-r from-red-500 to-red-400' : usedPct > 75 ? 'bg-gradient-to-r from-warning to-amber-400' : 'bg-gradient-to-r from-accent to-teal'}`}
+                                <div className="h-2 bg-elevated rounded-full overflow-hidden">
+                                    <div className={`h-full rounded-full transition-all duration-700 ${usedPct > 90 ? 'bg-danger' : usedPct > 75 ? 'bg-warning' : 'bg-accent'}`}
                                         style={{ width: `${Math.min(usedPct, 100)}%` }} />
                                 </div>
-                                <p className="text-[10px] text-text-3/40 truncate">{diskInfo.path}</p>
+                                <p className="text-[10px] text-text-3 truncate">{diskInfo.path}</p>
                             </div>
                         );
                     })()}
@@ -407,10 +424,10 @@ export default function LibraryPage() {
             )}
 
             {/* Search + Sort */}
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3 flex gap-3 backdrop-blur-sm">
+            <div className="rounded-2xl border border-white/[0.06] bg-surface p-3 flex gap-3">
                 <div className="relative flex-1">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm pointer-events-none">
-                        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="5.5" cy="5.5" r="4" /><path d="M9 9l2.5 2.5" /></svg>
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 pointer-events-none">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="10.5" cy="10.5" r="7" /><path d="M16 16l5 5" /></svg>
                     </span>
                     <input
                         ref={searchInputRef}
@@ -419,29 +436,31 @@ export default function LibraryPage() {
                         onChange={e => setSearch(e.target.value)}
                         onKeyDown={e => e.key === 'Escape' && setSearch('')}
                         placeholder="Filter files… (press / to focus)"
-                        className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.07] text-sm text-white placeholder-text-3 focus:outline-none focus:border-accent/40 focus:bg-white/[0.06] transition-all"
+                        className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-elevated border border-white/[0.06] text-sm text-text-1 placeholder-text-3 focus:outline-none focus:border-accent transition-all"
                     />
                     {search ? (
-                        <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3 hover:text-white text-xs">✕</button>
+                        <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3 hover:text-text-1">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                        </button>
                     ) : (
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-text-3/30 font-mono border border-white/[0.08] px-1.5 py-0.5 rounded pointer-events-none">/</span>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-text-3 font-mono border border-white/[0.06] px-1.5 py-0.5 rounded pointer-events-none">/</span>
                     )}
                 </div>
                 <div className="relative" ref={sortRef}>
                     <button
                         onClick={() => setSortOpen(o => !o)}
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.07] hover:border-white/[0.14] text-sm text-text-2 hover:text-white transition-all min-w-[150px] justify-between"
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-elevated border border-white/[0.06] hover:border-white/[0.14] text-sm text-text-2 hover:text-text-1 transition-all min-w-[150px] justify-between"
                     >
                         <span>{SORT_LABELS[sortBy]}</span>
-                        <span className={`text-[10px] text-text-3 transition-transform duration-200 ${sortOpen ? "rotate-180" : ""}`}>▼</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`text-text-3 transition-transform duration-200 ${sortOpen ? "rotate-180" : ""}`}><path d="m6 9 6 6 6-6" /></svg>
                     </button>
                     {sortOpen && (
-                        <div className="absolute right-0 top-full mt-1.5 w-44 rounded-xl bg-[#12122a] border border-white/[0.08] shadow-2xl shadow-black/60 overflow-hidden z-50">
+                        <div className="absolute right-0 top-full mt-1.5 w-44 rounded-xl bg-elevated border border-white/[0.06] shadow-cinema overflow-hidden z-50">
                             {(["modified", "size", "name"] as const).map(opt => (
                                 <button key={opt} onClick={() => { setSortBy(opt); setSortOpen(false); }}
                                     className={`w-full text-left px-4 py-2.5 text-sm transition-all ${sortBy === opt
-                                        ? "bg-accent/15 text-white font-semibold"
-                                        : "text-text-2 hover:bg-white/[0.05] hover:text-white"
+                                        ? "bg-accent text-black font-semibold"
+                                        : "text-text-2 hover:bg-white/[0.05] hover:text-text-1"
                                         }`}>
                                     {SORT_LABELS[opt]}
                                 </button>
@@ -453,19 +472,19 @@ export default function LibraryPage() {
 
             {/* Category Tabs */}
             {!loading && categories.length > 1 && (
-                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-2 sm:p-3 flex gap-2 flex-wrap">
+                <div className="rounded-2xl border border-white/[0.06] bg-surface p-2 sm:p-3 flex gap-2 flex-wrap">
                     {categories.map(cat => {
                         const count = cat === "All" ? topLevel.length : topLevel.filter(i => i.category === cat).length;
                         const isActive = activeCategory === cat;
                         return (
                             <button key={cat} onClick={() => setActiveCategory(cat)}
-                                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all ${isActive
-                                    ? "bg-accent/15 text-accent border-accent/20"
-                                    : "bg-white/[0.03] text-text-3 border-white/[0.05] hover:text-white hover:border-white/[0.1]"
+                                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[11px] font-bold border transition-all ${isActive
+                                    ? "bg-accent text-black border-transparent"
+                                    : "bg-elevated text-text-3 border-white/[0.06] hover:text-text-1 hover:border-white/[0.14]"
                                     }`}>
-                                <span>{CATEGORY_ICONS[cat] || "📄"}</span>
+                                <CategoryIcon category={cat} className="w-3.5 h-3.5" />
                                 {cat}
-                                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${isActive ? "bg-accent/20 text-accent" : "bg-white/5 text-text-3"}`}>{count}</span>
+                                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${isActive ? "bg-black/15 text-black" : "bg-white/[0.06] text-text-3"}`}>{count}</span>
                             </button>
                         );
                     })}
@@ -475,15 +494,15 @@ export default function LibraryPage() {
             {/* Content */}
             {loading ? (
                 <div className="py-20 text-center">
-                    <div className="text-4xl mb-3 opacity-20 animate-pulse">🎬</div>
+                    <svg className="w-12 h-12 mx-auto mb-3 text-text-3 opacity-30 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M10 9l5 3-5 3V9Z" /></svg>
                     <p className="text-text-3 text-sm">Loading library…</p>
                 </div>
             ) : filtered.length === 0 ? (
-                <div className="py-20 text-center rounded-3xl bg-white/[0.02] border border-dashed border-white/[0.06]">
-                    <div className="text-4xl mb-3 opacity-20">🎬</div>
+                <div className="py-20 text-center rounded-2xl bg-surface border border-dashed border-white/[0.06]">
+                    <svg className="w-12 h-12 mx-auto mb-3 text-text-3 opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M10 9l5 3-5 3V9Z" /></svg>
                     <p className="text-text-3 text-sm">{topLevel.length === 0 ? "No files in download folder yet" : "No results match your filter"}</p>
                     {topLevel.length === 0 && settings?.downloadPath && (
-                        <p className="text-text-3/50 text-xs mt-1">{settings.downloadPath}</p>
+                        <p className="text-text-3 text-xs mt-1">{settings.downloadPath}</p>
                     )}
                 </div>
             ) : viewMode === "grid" ? (
@@ -491,31 +510,31 @@ export default function LibraryPage() {
                     {filtered.map((item, idx) => {
                         const dlStatus = getTorrentStatus(item.name);
                         return (
-                            <div key={idx} style={{ contentVisibility: 'auto', containIntrinsicSize: '260px' }} className={`group rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border hover:bg-white/[0.05] transition-all flex flex-col gap-0 overflow-hidden ${dlStatus.status === 'completed' ? 'border-teal/15' : dlStatus.status === 'downloading' ? 'border-accent/15' : 'border-white/[0.08] hover:border-white/[0.14]'} hover:shadow-[0_20px_48px_-28px_rgba(122,106,255,0.72)]`}>
+                            <div key={idx} style={{ contentVisibility: 'auto', containIntrinsicSize: '260px' }} className={`group cine-card cine-card-hover rounded-2xl border transition-all flex flex-col gap-0 overflow-hidden ${dlStatus.status === 'completed' ? 'border-teal/30' : dlStatus.status === 'downloading' ? 'border-accent/30' : 'border-white/[0.06] hover:border-white/[0.14]'}`}>
                                 {/* Poster or skeleton or icon banner */}
                                 {(item.category === 'Video' || item.isDir) && posters[item.name] === 'loading' ? (
-                                    <div className="w-full aspect-[2/3] bg-white/[0.04] animate-pulse rounded-t-xl flex items-center justify-center">
-                                        <svg className="w-6 h-6 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                    <div className="w-full poster-ratio bg-elevated animate-pulse rounded-t-2xl flex items-center justify-center">
+                                        <svg className="w-7 h-7 text-text-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
                                     </div>
                                 ) : typeof posters[item.name] === 'string' && posters[item.name] !== 'loading' ? (
-                                    <div className="relative w-full aspect-[2/3] overflow-hidden bg-black/30">
+                                    <div className="relative w-full poster-ratio overflow-hidden bg-base">
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         <img src={posters[item.name] as string} alt={item.name}
                                             className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
                                             onError={() => setPosters(prev => ({ ...prev, [item.name]: null }))}
                                         />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-[#0e0e1a]/80 via-transparent to-transparent" />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-base via-transparent to-transparent" />
                                         <span className={`absolute top-2 right-2 px-2 py-0.5 rounded-lg text-[9px] font-bold border ${CATEGORY_COLORS[item.category] || CATEGORY_COLORS.Other}`}>
                                             {item.category}
                                         </span>
                                         {/* Download status badge on poster */}
                                         {dlStatus.status === 'completed' && (
-                                            <span className="absolute top-2 left-2 w-7 h-7 rounded-full bg-teal/90 flex items-center justify-center shadow-lg shadow-teal/30 ring-2 ring-teal/30">
-                                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
+                                            <span className="absolute top-2 left-2 w-7 h-7 rounded-full bg-teal flex items-center justify-center shadow-cinema ring-2 ring-teal/30">
+                                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#09090b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
                                             </span>
                                         )}
                                         {dlStatus.status === 'downloading' && (
-                                            <span className="absolute top-2 left-2 px-2 py-1 rounded-lg bg-accent/90 text-white text-[9px] font-black shadow-lg shadow-accent/30 ring-1 ring-accent/40 flex items-center gap-1 animate-pulse">
+                                            <span className="absolute top-2 left-2 px-2 py-1 rounded-lg bg-accent text-black text-[9px] font-black shadow-cinema ring-1 ring-accent/40 flex items-center gap-1 animate-pulse">
                                                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 1v6M3 5l2 2 2-2" /><path d="M1 8h8" /></svg>
                                                 {parseFloat(dlStatus.progress || '0').toFixed(0)}%
                                             </span>
@@ -523,16 +542,17 @@ export default function LibraryPage() {
                                     </div>
                                 ) : (
                                     <div className="px-4 pt-4 pb-0 flex items-center justify-between">
-                                        <span className="text-2xl">{CATEGORY_ICONS[item.category] || "📄"}</span>
+                                        <CategoryIcon category={item.category} className="w-6 h-6 text-text-2" />
                                         <div className="flex items-center gap-2">
                                             {dlStatus.status === 'completed' && (
-                                                <span className="w-6 h-6 rounded-full bg-teal/90 flex items-center justify-center shadow-md shadow-teal/20">
-                                                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
+                                                <span className="w-6 h-6 rounded-full bg-teal flex items-center justify-center shadow-cinema">
+                                                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="#09090b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
                                                 </span>
                                             )}
                                             {dlStatus.status === 'downloading' && (
-                                                <span className="px-2 py-0.5 rounded-lg bg-accent/20 text-accent text-[9px] font-black border border-accent/20 animate-pulse">
-                                                    ↓ {parseFloat(dlStatus.progress || '0').toFixed(0)}%
+                                                <span className="px-2 py-0.5 rounded-lg bg-accent/20 text-accent text-[9px] font-black border border-accent/20 animate-pulse flex items-center gap-1">
+                                                    <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 1v6M3 5l2 2 2-2" /><path d="M1 8h8" /></svg>
+                                                    {parseFloat(dlStatus.progress || '0').toFixed(0)}%
                                                 </span>
                                             )}
                                             <span className={`px-2 py-0.5 rounded-lg text-[9px] font-bold border ${CATEGORY_COLORS[item.category] || CATEGORY_COLORS.Other}`}>
@@ -543,7 +563,7 @@ export default function LibraryPage() {
                                 )}
                                 {/* Name + meta */}
                                 <div className="flex flex-col gap-2 p-4 flex-1">
-                                    <p className="text-xs font-semibold text-white leading-tight line-clamp-2 break-all">{item.name}</p>
+                                    <p className="text-xs font-semibold text-text-1 leading-tight line-clamp-2 break-all">{item.name}</p>
                                     <div className="mt-auto flex items-center justify-between text-[10px] text-text-3">
                                         <span className="font-mono">{item.isDir ? "—" : formatSize(item.size)}</span>
                                         <div className="flex items-center gap-1.5">
@@ -553,7 +573,8 @@ export default function LibraryPage() {
                                                     {/* Subtitle status */}
                                                     {(subStatus[item.name] || autoSubDone.has(item.name)) ? (
                                                         <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-teal/15 text-teal text-[9px] font-bold border border-teal/15" title="Subtitles available">
-                                                            CC ✓
+                                                            CC
+                                                            <svg width="9" height="9" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
                                                         </span>
                                                     ) : autoSubTriggering === item.name ? (
                                                         <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-accent/15 text-accent text-[9px] font-bold border border-accent/15 animate-pulse">
@@ -588,16 +609,16 @@ export default function LibraryPage() {
                     {filtered.map((item, idx) => {
                         const dlStatus = getTorrentStatus(item.name);
                         return (
-                            <div key={idx} style={{ contentVisibility: 'auto', containIntrinsicSize: '76px' }} className={`group flex items-center gap-4 px-5 py-3 rounded-xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border hover:bg-white/[0.05] transition-all ${dlStatus.status === 'completed' ? 'border-teal/15 hover:border-teal/25' : dlStatus.status === 'downloading' ? 'border-accent/15 hover:border-accent/25' : 'border-white/[0.08] hover:border-white/[0.14]'}`}>
-                                <span className="text-xl shrink-0">{CATEGORY_ICONS[item.category] || "📄"}</span>
+                            <div key={idx} style={{ contentVisibility: 'auto', containIntrinsicSize: '76px' }} className={`group flex items-center gap-4 px-5 py-3 rounded-xl bg-surface hover:bg-elevated border transition-all ${dlStatus.status === 'completed' ? 'border-teal/30 hover:border-teal/40' : dlStatus.status === 'downloading' ? 'border-accent/30 hover:border-accent/40' : 'border-white/[0.06] hover:border-white/[0.14]'}`}>
+                                <CategoryIcon category={item.category} className="w-5 h-5 shrink-0 text-text-2" />
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-white truncate">{item.name}</p>
+                                    <p className="text-sm font-medium text-text-1 truncate">{item.name}</p>
                                     <p className="text-[10px] text-text-3 mt-0.5 truncate">{item.path}</p>
                                 </div>
                                 {/* Download status badge */}
                                 {dlStatus.status === 'completed' && (
-                                    <span className="shrink-0 w-7 h-7 rounded-full bg-teal/90 flex items-center justify-center shadow-md shadow-teal/20">
-                                        <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
+                                    <span className="shrink-0 w-7 h-7 rounded-full bg-teal flex items-center justify-center shadow-cinema">
+                                        <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="#09090b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
                                     </span>
                                 )}
                                 {dlStatus.status === 'downloading' && (
@@ -618,7 +639,8 @@ export default function LibraryPage() {
                                         <>
                                             {(subStatus[item.name] || autoSubDone.has(item.name)) ? (
                                                 <span className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-teal/15 text-teal text-[9px] font-bold border border-teal/15" title="Subtitles available">
-                                                    CC ✓
+                                                    CC
+                                                    <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7.5l3 3 5-6" /></svg>
                                                 </span>
                                             ) : autoSubTriggering === item.name ? (
                                                 <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-accent/15 text-accent text-[9px] font-bold border border-accent/15 animate-pulse">
@@ -650,31 +672,33 @@ export default function LibraryPage() {
 
             {/* ── Subtitle Panel ── */}
             {subItem && (
-                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/70"
                     onClick={e => { if (e.target === e.currentTarget) { setSubItem(null); setSubResults([]); } }}>
-                    <div className="w-full max-w-2xl rounded-2xl bg-[#0d0d20] border border-white/[0.08] shadow-2xl shadow-black/80 flex flex-col max-h-[85vh]">
+                    <div className="w-full max-w-2xl rounded-2xl bg-surface border border-white/[0.06] shadow-cinema flex flex-col max-h-[85vh]">
                         {/* Header */}
                         <div className="flex items-start justify-between p-5 pb-4 border-b border-white/[0.06]">
                             <div className="min-w-0">
-                                <h2 className="text-base font-bold text-white">Find Subtitles</h2>
+                                <h2 className="cine-title text-base font-bold text-text-1">Find Subtitles</h2>
                                 <p className="text-[11px] text-text-3 truncate mt-0.5">{subItem.name}</p>
                             </div>
                             <button onClick={() => { setSubItem(null); setSubResults([]); }}
-                                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:text-white hover:bg-white/[0.06] transition-all text-sm shrink-0 ml-3">✕</button>
+                                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-elevated transition-all shrink-0 ml-3">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                            </button>
                         </div>
                         {/* Controls */}
-                        <div className="p-4 border-b border-white/[0.04] flex gap-2">
+                        <div className="p-4 border-b border-white/[0.06] flex gap-2">
                             <input type="text" value={subQuery} onChange={e => setSubQuery(e.target.value)}
                                 onKeyDown={e => e.key === "Enter" && searchSubs(undefined, undefined, subItem ?? undefined)}
                                 placeholder="Movie / show name…"
-                                className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.07] text-sm text-white placeholder-text-3 focus:outline-none focus:border-teal/40 transition-all" />
+                                className="flex-1 px-3 py-2 rounded-xl bg-elevated border border-white/[0.06] text-sm text-text-1 placeholder-text-3 focus:outline-none focus:border-accent transition-all" />
                             <select value={subLang} onChange={e => { setSubLang(e.target.value); searchSubs(subQuery, e.target.value, subItem ?? undefined); }}
-                                style={{ colorScheme: 'dark', backgroundColor: '#0d0d20' }}
-                                className="px-3 py-2 rounded-xl border border-white/[0.07] text-sm text-text-2 focus:outline-none cursor-pointer shrink-0">
-                                {LANGS.map(l => <option key={l.code} value={l.code} style={{ backgroundColor: '#0d0d20' }}>{l.label}</option>)}
+                                style={{ colorScheme: 'dark', backgroundColor: '#1c1c21' }}
+                                className="px-3 py-2 rounded-xl bg-elevated border border-white/[0.06] text-sm text-text-2 focus:outline-none cursor-pointer shrink-0">
+                                {LANGS.map(l => <option key={l.code} value={l.code} style={{ backgroundColor: '#1c1c21' }}>{l.label}</option>)}
                             </select>
                             <button onClick={() => searchSubs(undefined, undefined, subItem ?? undefined)} disabled={subLoading}
-                                className="px-4 py-2 rounded-xl bg-teal/15 text-teal hover:bg-teal/25 border border-teal/15 text-sm font-bold transition-all disabled:opacity-50 shrink-0">
+                                className="btn-primary px-4 py-2 rounded-xl text-sm font-bold transition-all disabled:opacity-50 shrink-0">
                                 {subLoading ? "…" : "Search"}
                             </button>
                         </div>
@@ -682,7 +706,7 @@ export default function LibraryPage() {
                         {subMsg && (
                             <div className={`mx-4 mt-3 px-4 py-2.5 rounded-xl text-sm font-medium ${subMsg.type === "ok"
                                 ? "bg-teal/10 text-teal border border-teal/15"
-                                : "bg-red-500/10 text-red-400 border border-red-500/15"
+                                : "bg-danger/10 text-danger border border-danger/15"
                                 }`}>{subMsg.text}</div>
                         )}
                         {/* Results */}
@@ -690,28 +714,39 @@ export default function LibraryPage() {
                             {subLoading ? (
                                 <div className="py-10 text-center text-text-3 text-sm animate-pulse">Searching OpenSubtitles…</div>
                             ) : subResults.length === 0 && !subMsg ? (
-                                <div className="py-10 text-center text-text-3/40 text-sm">Results will appear here</div>
+                                <div className="py-10 text-center text-text-3 text-sm">Results will appear here</div>
                             ) : subResults.map(r => (
                                 <div key={r.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${r.exact
-                                    ? "bg-teal/[0.04] border-teal/20 hover:border-teal/30"
-                                    : "bg-white/[0.02] border-white/[0.04] hover:border-white/[0.08] hover:bg-white/[0.04]"
+                                    ? "bg-teal/[0.06] border-teal/20 hover:border-teal/30"
+                                    : "bg-elevated border-white/[0.06] hover:border-white/[0.14]"
                                     }`}>
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-medium text-white truncate">{r.name}</p>
+                                        <p className="text-xs font-medium text-text-1 truncate">{r.name}</p>
                                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                                             {r.exact && (
-                                                <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-teal/20 text-teal border border-teal/20 font-black tracking-wide">⚡ EXACT</span>
+                                                <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-md bg-teal/20 text-teal border border-teal/20 font-black tracking-wide">
+                                                    <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" /></svg>
+                                                    EXACT
+                                                </span>
                                             )}
                                             <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-white/[0.06] text-text-2 border border-white/[0.06] font-bold">{r.lang}</span>
-                                            {r.hearing && <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/10">HoH</span>}
-                                            <span className="text-[10px] text-text-3">↓ {parseInt(r.downloads || "0").toLocaleString()}</span>
-                                            {r.rating && r.rating !== "0.0" && <span className="text-[10px] text-yellow-400">★ {parseFloat(r.rating).toFixed(1)}</span>}
+                                            {r.hearing && <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-accent/10 text-accent border border-accent/15">HoH</span>}
+                                            <span className="flex items-center gap-0.5 text-[10px] text-text-3">
+                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 11l5 5 5-5M5 21h14" /></svg>
+                                                {parseInt(r.downloads || "0").toLocaleString()}
+                                            </span>
+                                            {r.rating && r.rating !== "0.0" && (
+                                                <span className="flex items-center gap-0.5 text-[10px] text-warning">
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="m12 2 2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17.3 5.8 20.9l1.6-6.8L2.2 9.5l6.9-.6L12 2Z" /></svg>
+                                                    {parseFloat(r.rating).toFixed(1)}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                     <button onClick={() => downloadSub(r)} disabled={subDownloading === r.id}
                                         className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all disabled:opacity-50 ${r.exact
                                             ? "bg-teal/15 text-teal hover:bg-teal/25 border-teal/15"
-                                            : "bg-white/[0.06] text-text-2 hover:bg-white/[0.1] hover:text-white border-white/[0.08]"
+                                            : "bg-white/[0.06] text-text-2 hover:bg-white/[0.1] hover:text-text-1 border-white/[0.06]"
                                             }`}>
                                         {subDownloading === r.id ? "…" : "Download"}
                                     </button>

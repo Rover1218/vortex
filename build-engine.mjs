@@ -26,7 +26,10 @@ async function build() {
         target: 'node18',
         outfile: BUNDLE_FILE,
         format: 'cjs',
-        external: ['fsevents', 'node-gyp-build'],
+        // ffmpeg-static references a binary path that breaks when bundled/pkg'd — keep
+        // it external. At runtime the packaged engine uses ffmpeg.exe bundled beside it
+        // (extraResources), and the dynamic import just fails gracefully if missing.
+        external: ['fsevents', 'node-gyp-build', 'ffmpeg-static'],
         define: {
             'process.env.VORTEX_PROD': 'true',
         },

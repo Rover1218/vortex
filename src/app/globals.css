@@ -3,20 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --background: #060611;
-  --foreground: #eef0ff;
+  /* Cinematic dark — true near-black, warm amber-gold accent */
+  --background: #09090b;
+  --foreground: #f7f6f3;
 
-  --bg-base: #060611;
-  --bg-surface: #0e0e1a;
-  --bg-elevated: #16162a;
-  --bg-border: #ffffff0a;
-  --accent-primary: #7c6aff;
-  --accent-secondary: #00e8b0;
-  --accent-danger: #ff5577;
-  --accent-warning: #ffb347;
-  --text-primary: #eef0ff;
-  --text-secondary: #8b8db0;
-  --text-tertiary: #4a4b6a;
+  --bg-base: #09090b;
+  --bg-surface: #131316;
+  --bg-elevated: #1c1c21;
+  --bg-border: #ffffff14;
+  --accent-primary: #f5a623;
+  --accent-strong: #ffc04d;
+  --accent-secondary: #2dd4a7;
+  --accent-danger: #ff5470;
+  --accent-warning: #fbbf24;
+  --text-primary: #f7f6f3;
+  --text-secondary: #9b9ba6;
+  --text-tertiary: #60606b;
 }
 
 * {
@@ -75,18 +77,113 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #7c6aff 0%, #00e8b0 100%);
+  background: #2a2a30;
   border-radius: 10px;
 }
 
-/* Glow Effects */
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a42;
+}
+
+/* Glow Effects (subtle, cinematic — not neon) */
 .glow-accent {
-  box-shadow: 0 0 20px rgba(124, 106, 255, 0.15), 0 0 60px rgba(124, 106, 255, 0.05);
+  box-shadow: 0 0 24px rgba(245, 166, 35, 0.12), 0 0 70px rgba(245, 166, 35, 0.04);
 }
 
 .glow-teal {
-  box-shadow: 0 0 20px rgba(0, 232, 176, 0.15), 0 0 60px rgba(0, 232, 176, 0.05);
+  box-shadow: 0 0 24px rgba(45, 212, 167, 0.12), 0 0 70px rgba(45, 212, 167, 0.04);
 }
+
+/* ── Cinematic component primitives ───────────────────────────────────────── */
+@layer components {
+
+  /* Solid elevated surfaces instead of translucent glass */
+  .cine-card {
+    @apply bg-surface border border-white/[0.06] rounded-2xl;
+  }
+
+  .cine-card-hover {
+    @apply transition-colors duration-200 hover:border-white/[0.12] hover:bg-elevated;
+  }
+
+  /* Primary action — amber-gold, used sparingly for the main CTA */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-black transition-all hover:bg-accent-strong active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  /* Neutral / ghost action */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-text-1 transition-all hover:bg-white/[0.08] active:scale-[0.98];
+  }
+
+  /* Icon-only square button */
+  .btn-icon {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-text-2 transition-all hover:text-text-1 hover:bg-white/[0.09];
+  }
+
+  /* Pill / chip */
+  .cine-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs font-medium text-text-2;
+  }
+
+  /* Text input */
+  .cine-input {
+    @apply w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-text-1 placeholder:text-text-3 outline-none transition-all focus:border-accent/50 focus:bg-white/[0.05];
+  }
+
+  /* Section heading */
+  .cine-title {
+    @apply text-lg font-bold tracking-tight text-text-1;
+  }
+}
+
+/* Poster aspect helper */
+.poster-ratio {
+  aspect-ratio: 2 / 3;
+}
+
+/* Video player stage — fill the screen properly in fullscreen (override the
+   windowed max-h cap so the video isn't letterboxed to 72vh). */
+.player-stage:fullscreen,
+.player-stage:-webkit-full-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+}
+.player-stage:fullscreen video,
+.player-stage:-webkit-full-screen video {
+  width: 100%;
+  height: 100%;
+  max-height: 100vh !important;
+  object-fit: contain;
+}
+
+/* ── Landing / login flourishes ───────────────────────────────────────────── */
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.animate-marquee { animation: marquee 32s linear infinite; }
+
+@keyframes gradient-pan { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+.text-gradient-amber {
+  background: linear-gradient(100deg, #ffd98a, #f5a623, #ff8a3d, #ffd98a);
+  background-size: 220% auto;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: gradient-pan 7s ease infinite;
+}
+
+@keyframes float-slow { 0%, 100% { transform: translateY(0) rotate(var(--rot, 0deg)); } 50% { transform: translateY(-16px) rotate(var(--rot, 0deg)); } }
+.animate-float-slow { animation: float-slow 7s ease-in-out infinite; }
+
+@keyframes aurora-drift { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(5%, 4%) scale(1.15); } }
+.animate-aurora { animation: aurora-drift 18s ease-in-out infinite; }
+
+@keyframes glow-breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.85; } }
+.animate-glow-breathe { animation: glow-breathe 5s ease-in-out infinite; }
+
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.animate-spin-slow { animation: spin-slow 26s linear infinite; }
 
 @keyframes shimmer {
   0% {

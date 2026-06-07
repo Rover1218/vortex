@@ -1,8 +1,35 @@
 "use client";
 
 import { useTorrents } from "@/context/TorrentContext";
+import StreamPlayer from "@/components/StreamPlayer";
+import { listContinueWatching, removeProgress, type WatchEntry } from "@/lib/watchProgress";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
+
+// Reduce a raw torrent title to a clean movie/show name for poster lookup, e.g.
+// "Interstellar.2014.1080p.BluRay.x265-GalaxyRG265" -> "Interstellar".
+// This makes TMDB match reliably (dotted/release-tagged names otherwise miss and
+// fall back to a wrong poster) AND lets every release of the same title share one
+// poster fetch — fixing wrong thumbnails and slow loading at once.
+const cleanMovieName = (title: string): string => {
+    let s = (title || "")
+        .replace(/\.[a-z0-9]{2,4}$/i, "")     // strip extension
+        .replace(/\[.*?\]/g, " ")             // [Group] [1080p]
+        .replace(/\(.*?\)/g, " ")             // (2014)
+        .replace(/[._]+/g, " ");              // dots/underscores -> spaces
+    // Cut from the first year/quality/source tag onward.
+    const cut = s.search(/\b((?:19|20)\d{2}|480p|720p|1080p|2160p|4k|uhd|bluray|brrip|bdrip|webrip|web[-. ]?dl|hdtv|dvdrip|x264|x265|h264|h265|hevc|avc|xvid|remux|proper|repack|imax|dts|ddp|dd5|aac|atmos|truehd)\b/i);
+    if (cut > 2) s = s.slice(0, cut);
+    s = s.replace(/\s*-\s*[A-Za-z0-9]{2,}$/, "");  // trailing release group
+    return s.replace(/\s{2,}/g, " ").trim();
+};
+
+// Stable poster cache key derived from the CLEANED title (not the array-index id,
+// which collides across searches and shifts as results stream in).
+const flatPosterKey = (title: string) => {
+    const cleaned = cleanMovieName(title).toLowerCase();
+    return `flat:${cleaned || (title || "").toLowerCase().replace(/\s+/g, " ").trim()}`;
+};
 
 const SORT_OPTIONS = ['Relevance', 'Seeders (Most)', 'Seeders (Least)', 'Size (Largest)', 'Size (Smallest)'];
 const QUALITY_OPTIONS = [
@@ -74,6 +101,12 @@ export default function SearchPage() {
     const [addingId, setAddingId] = useState<number | null>(null);
     const [addedIds, setAddedIds] = useState<Set<number>>(new Set());
     const [errorId, setErrorId] = useState<number | null>(null);
+    const [streamingId, setStreamingId] = useState<number | null>(null);
+    const [quickId, setQuickId] = useState<number | null>(null);
+    const [streamTarget, setStreamTarget] = useState<{ infoHash: string; name: string; fileIdx?: number; time?: number; ephemeral?: boolean } | null>(null);
+    const [continueList, setContinueList] = useState<WatchEntry[]>([]);
+
+    useEffect(() => { setContinueList(listContinueWatching()); }, []);
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
     const [groupMode, setGroupMode] = useState(true); // toggle grouping on/off
     // bulk adding: group key being serially added
@@ -332,12 +365,23 @@ export default function SearchPage() {
             .map(m => ({ role: m.role, text: m.text }))
             .filter(m => m.text && m.text.trim().length > 0);
 
-        const avoid = uniqueSuggestions(
-            chatMessages
-                .flatMap(m => (m.suggestionItems?.map(item => item.title) || m.suggestions || []))
-                .slice(-40)
-        );
-        const avoidSet = new Set(avoid.map(s => normalizeTitle(s)));
+        // Collect EVERY title suggested so far (deduped, up to 40) so repeat asks /
+        // "suggest others" never resurface the same picks. uniqueSuggestions caps at
+        // 6, which was the bug that made it loop the same titles.
+        const avoidSeen = new Set<string>();
+        const avoid: string[] = [];
+        for (const m of chatMessages) {
+            const titles = (m.suggestionItems?.map(item => item.title) || m.suggestions || []);
+            for (const t of titles) {
+                const key = normalizeTitle(t);
+                if (!key || avoidSeen.has(key)) continue;
+                avoidSeen.add(key);
+                avoid.push(t);
+                if (avoid.length >= 40) break;
+            }
+            if (avoid.length >= 40) break;
+        }
+        const avoidSet = avoidSeen;
 
         try {
             const aiRes = await fetch('/api/movie-helper', {
@@ -491,6 +535,71 @@ export default function SearchPage() {
         }
     };
 
+    // Stream a result: ensure the torrent is in the engine (adding is idempotent —
+    // the engine returns the existing infoHash for duplicates), then open the
+    // player, which polls until the file is ready to play.
+    const handleStream = async (id: number) => {
+        const item = searchResults.find(r => r.id === id);
+        if (!item || streamingId === id) return;
+        setStreamingId(id);
+        setErrorId(null);
+        try {
+            let magnet = magnetCacheRef.current.get(id);
+            if (!magnet) {
+                const magnetRes = await fetch(`${API_BASE}/api/magnet/${id}`);
+                if (!magnetRes.ok) throw new Error('Magnet fetch failed');
+                const payload = await magnetRes.json();
+                magnet = payload?.magnet;
+                if (!magnet) throw new Error('No magnet returned');
+                magnetCacheRef.current.set(id, magnet);
+            }
+            const added = await addMagnet(magnet);
+            const infoHash = added?.infoHash;
+            if (!infoHash) throw new Error('Could not resolve torrent');
+            setAddedIds(prev => new Set(prev).add(id));
+            setStreamTarget({ infoHash, name: item.title });
+        } catch (err) {
+            console.error('Stream error:', err);
+            setErrorId(id);
+            setTimeout(() => setErrorId(null), 3000);
+        } finally {
+            setStreamingId(null);
+        }
+    };
+
+    // Quick Watch: stream without saving — adds the torrent to a temp store
+    // (fetch-on-demand) that's auto-deleted when the player closes.
+    const handleQuickWatch = async (id: number) => {
+        const item = searchResults.find(r => r.id === id);
+        if (!item || quickId === id) return;
+        setQuickId(id);
+        setErrorId(null);
+        try {
+            let magnet = magnetCacheRef.current.get(id);
+            if (!magnet) {
+                const magnetRes = await fetch(`${API_BASE}/api/magnet/${id}`);
+                if (!magnetRes.ok) throw new Error('Magnet fetch failed');
+                const payload = await magnetRes.json();
+                magnet = payload?.magnet;
+                if (!magnet) throw new Error('No magnet returned');
+                magnetCacheRef.current.set(id, magnet);
+            }
+            const res = await fetch(`${API_BASE}/api/stream-add`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ magnet }),
+            });
+            const data = await res.json();
+            if (!data?.infoHash) throw new Error('Could not start stream');
+            setStreamTarget({ infoHash: data.infoHash, name: item.title, ephemeral: true });
+        } catch (err) {
+            console.error('Quick Watch error:', err);
+            setErrorId(id);
+            setTimeout(() => setErrorId(null), 3000);
+        } finally {
+            setQuickId(null);
+        }
+    };
+
     const parseSize = (s: string) => {
         const match = s.match(/([\d.]+)\s*(GB|MB|KB|TB)/i);
         if (!match) return 0;
@@ -625,9 +734,9 @@ export default function SearchPage() {
             }
         });
         flatItems.slice(0, 24).forEach(r => {
-            const k = `flat_${r.id}`;
+            const k = flatPosterKey(r.title);
             if (posters[k] === undefined && !fetchingRef.current.has(k)) {
-                toFetch.push({ key: k, query: r.title });
+                toFetch.push({ key: k, query: cleanMovieName(r.title) || r.title });
             }
         });
 
@@ -661,7 +770,15 @@ export default function SearchPage() {
                     }
                 }));
                 if (Object.keys(posterBatchUpdates).length > 0) {
-                    setPosters(prev => ({ ...prev, ...posterBatchUpdates }));
+                    setPosters(prev => {
+                        const next = { ...prev };
+                        for (const [k, v] of Object.entries(posterBatchUpdates)) {
+                            // Don't overwrite an already-resolved poster with a late null.
+                            if (v === null && typeof prev[k] === 'string' && prev[k]) continue;
+                            next[k] = v;
+                        }
+                        return next;
+                    });
                 }
                 if (toFetch.length > batchSize && !controller.signal.aborted) await new Promise(res => setTimeout(res, 100));
             }
@@ -691,23 +808,22 @@ export default function SearchPage() {
     };
 
     return (
-        <div className="max-w-5xl mx-auto space-y-6 pb-8 relative">
-            <div className="pointer-events-none absolute -top-10 left-[-18%] h-72 w-72 rounded-full bg-accent/10 blur-3xl" />
-            <div className="pointer-events-none absolute top-56 right-[-12%] h-64 w-64 rounded-full bg-teal/10 blur-3xl" />
-
+        <div className="max-w-5xl mx-auto space-y-6 pb-8">
             {/* Hero Search */}
-            <div className="relative z-20 rounded-3xl p-8 pb-10 border border-white/[0.08] bg-gradient-to-br from-[#17103a]/85 via-[#14102f]/85 to-[#081925]/75 shadow-[0_22px_80px_-35px_rgba(54,140,255,0.55)]">
-                <div className="absolute -top-20 -left-16 h-48 w-48 rounded-full bg-accent/20 blur-3xl pointer-events-none" />
-                <div className="absolute -bottom-24 right-10 h-56 w-56 rounded-full bg-teal/15 blur-3xl pointer-events-none" />
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(124,106,255,0.2),transparent_62%)] pointer-events-none" />
-                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/60 to-transparent pointer-events-none" />
+            <div className="relative z-20 rounded-3xl p-8 pb-10 border border-white/[0.06] bg-surface">
+                {/* Decorative glow — clipped to the hero so it can't bleed, while the
+                    suggestions dropdown (outside this layer) is free to overflow. */}
+                <div className="absolute inset-0 overflow-hidden rounded-3xl pointer-events-none">
+                    <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
+                    <div className="absolute -top-24 left-1/2 -translate-x-1/2 h-44 w-[30rem] rounded-full bg-accent/[0.06] blur-3xl" />
+                </div>
 
-                <h1 className="text-4xl font-black text-center mb-6 tracking-tight text-white">
+                <h1 className="text-3xl sm:text-4xl font-black text-center mb-6 tracking-tight text-text-1">
                     Search Torrents
                 </h1>
 
                 <div className="relative max-w-2xl mx-auto" ref={suggestionRef}>
-                    <form onSubmit={(e) => handleSearch(e)} className="flex bg-[#1c1742]/70 backdrop-blur-md border border-white/[0.1] rounded-2xl overflow-hidden focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_rgba(124,106,255,0.14)] transition-all">
+                    <form onSubmit={(e) => handleSearch(e)} className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.03] pl-5 pr-2 transition-all focus-within:border-accent/50 focus-within:bg-white/[0.05]">
                         <input
                             type="text" value={searchQuery}
                             onChange={(e) => {
@@ -717,23 +833,22 @@ export default function SearchPage() {
                             }}
                             onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
                             placeholder="Search movies, shows, software, games..."
-                            className="flex-1 bg-transparent px-6 py-4 text-white placeholder-text-3 focus:outline-none text-sm"
+                            className="flex-1 bg-transparent py-4 text-text-1 placeholder-text-3 focus:outline-none text-sm"
                         />
                         {searchQuery.length > 0 && !isSearching && (
                             <button type="button" onClick={handleClear}
-                                className="px-3 py-4 text-text-3 hover:text-white transition-colors"
+                                className="p-2 text-text-3 hover:text-text-1 transition-colors"
                                 title="Clear search">
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         )}
                         {isSearching ? (
                             <button type="button" onClick={cancelSearch}
-                                className="px-6 py-4 bg-red-500/20 text-red-400 font-bold text-sm hover:bg-red-500/30 transition-all">
+                                className="my-1.5 rounded-xl bg-danger/15 px-6 py-2.5 text-sm font-semibold text-danger hover:bg-danger/25 transition-all">
                                 Cancel
                             </button>
                         ) : (
-                            <button type="submit"
-                                className="px-8 py-4 bg-gradient-to-r from-accent via-accent to-[#6351ff] text-white font-bold text-sm hover:brightness-110 transition-all">
+                            <button type="submit" className="btn-primary my-1.5 px-7 py-2.5">
                                 Search
                             </button>
                         )}
@@ -741,12 +856,12 @@ export default function SearchPage() {
 
                     {/* Suggestions Dropdown */}
                     {showSuggestions && suggestions.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-3 bg-[#111122]/95 border border-accent/25 rounded-2xl shadow-[0_16px_52px_-12px_rgba(0,0,0,0.78)] z-[200] overflow-hidden py-2 backdrop-blur-md max-h-[18rem] overflow-y-auto">
-                            <div className="px-5 py-2 text-[10px] font-bold text-accent/50 uppercase tracking-widest border-b border-white/5 mb-1">Suggestions</div>
+                        <div className="absolute top-full left-0 right-0 mt-3 rounded-2xl border border-white/[0.08] bg-elevated shadow-cinema z-[200] overflow-hidden py-2 max-h-[18rem] overflow-y-auto">
+                            <div className="px-5 py-2 text-[10px] font-bold text-text-3 uppercase tracking-widest border-b border-white/5 mb-1">Suggestions</div>
                             {suggestions.map((s, i) => (
                                 <button key={i} onClick={() => { setSearchQuery(s); handleSearch(undefined, s); }}
-                                    className="w-full text-left px-5 py-3 text-sm text-text-2 hover:bg-accent/10 hover:text-white transition-all flex items-center gap-3">
-                                    <span className="opacity-40">🔍</span>
+                                    className="w-full text-left px-5 py-2.5 text-sm text-text-2 hover:bg-white/[0.05] hover:text-text-1 transition-all flex items-center gap-3">
+                                    <svg className="w-3.5 h-3.5 text-text-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
                                     <span>{s}</span>
                                 </button>
                             ))}
@@ -759,9 +874,9 @@ export default function SearchPage() {
                     {QUALITY_OPTIONS.map(opt => (
                         <button key={opt.label}
                             onClick={() => setQualityFilter(opt.label)}
-                            className={`px-3.5 py-1.5 rounded-xl border text-[11px] font-bold transition-all ${qualityFilter === opt.label
-                                ? 'bg-accent/25 border-accent/55 text-accent scale-[1.05] shadow-[0_0_0_1px_rgba(124,106,255,0.24)]'
-                                : 'bg-white/[0.05] border-white/[0.1] text-text-3 hover:text-white hover:bg-white/[0.1]'
+                            className={`px-3.5 py-1.5 rounded-full border text-[11px] font-bold transition-all ${qualityFilter === opt.label
+                                ? 'bg-accent text-black border-accent'
+                                : 'bg-white/[0.04] border-white/[0.08] text-text-2 hover:text-text-1 hover:bg-white/[0.08]'
                                 }`}>
                             {opt.label}
                         </button>
@@ -813,10 +928,53 @@ export default function SearchPage() {
                         {providerFilter && (
                             <button
                                 onClick={() => setProviderFilter(null)}
-                                className="px-3 py-2.5 rounded-xl border border-white/[0.06] text-[11px] text-text-3 hover:text-white hover:bg-white/[0.05] transition-all">
+                                className="px-3 py-2.5 rounded-xl border border-white/[0.06] text-[11px] text-text-3 hover:text-text-1 hover:bg-white/[0.05] transition-all">
                                 Show all
                             </button>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* Continue Watching — shown on the home/initial view, hidden while browsing results */}
+            {continueList.length > 0 && !isSearching && sorted.length === 0 && (
+                <div className="rounded-2xl border border-white/[0.06] bg-surface p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                        <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                        <h2 className="text-sm font-bold text-text-1">Continue Watching</h2>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {continueList.slice(0, 6).map((e) => {
+                            const pct = e.dur > 0 ? Math.min(100, Math.round((e.t / e.dur) * 100)) : 0;
+                            return (
+                                <div
+                                    key={`${e.infoHash}:${e.fileIdx}`}
+                                    onClick={() => setStreamTarget({ infoHash: e.infoHash, name: e.title, fileIdx: e.fileIdx, time: e.t })}
+                                    className="relative text-left rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:border-accent/30 transition-all p-3 group cursor-pointer"
+                                >
+                                    <button
+                                        onClick={(ev) => { ev.stopPropagation(); removeProgress(e.infoHash, e.fileIdx); setContinueList(listContinueWatching()); }}
+                                        title="Remove from Continue Watching"
+                                        className="absolute top-2 right-2 w-6 h-6 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-white/[0.1] opacity-0 group-hover:opacity-100 transition-all z-10"
+                                    >
+                                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                                    </button>
+                                    <div className="flex items-center gap-2 mb-2 pr-6">
+                                        <span className="w-7 h-7 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0 group-hover:bg-accent group-hover:text-black transition-colors">
+                                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7V5z" /></svg>
+                                        </span>
+                                        <div className="min-w-0">
+                                            <div className="text-[12px] font-semibold text-text-1 truncate">{e.title}</div>
+                                            <div className="text-[10px] text-text-3 truncate">{e.name}</div>
+                                        </div>
+                                    </div>
+                                    <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                                        <div className="h-full bg-accent rounded-full" style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <div className="mt-1 text-[10px] text-text-3 font-mono">{pct}% watched · resume</div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             )}
@@ -832,7 +990,7 @@ export default function SearchPage() {
                     {/* Results Header */}
                     <div className="flex items-center justify-between">
                         <div>
-                            <h2 className="text-xl font-black text-white">Results</h2>
+                            <h2 className="text-xl font-black text-text-1">Results</h2>
                             <p className="text-xs text-text-3 mt-0.5">
                                 {sorted.length} {providerFilter ? <><span className="text-teal font-semibold">{providerFilter}</span> results</> : 'torrents found'}
                                 {groups.size > 0 && <span className="ml-2 text-accent/60">· {groups.size} show{groups.size !== 1 ? 's' : ''} grouped</span>}
@@ -842,7 +1000,7 @@ export default function SearchPage() {
                         <div className="flex items-center gap-3">
                             {/* Group toggle */}
                             <button onClick={() => setGroupMode(m => !m)}
-                                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${groupMode ? 'bg-accent/15 text-accent border-accent/20' : 'bg-white/[0.03] border-white/[0.06] text-text-3 hover:text-white'
+                                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${groupMode ? 'bg-accent/15 text-accent border-accent/20' : 'bg-white/[0.03] border-white/[0.06] text-text-3 hover:text-text-1'
                                     }`}
                                 title="Group TV episodes by show">
                                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><rect x="1" y="1" width="4" height="4" rx="0.8" /><rect x="7" y="1" width="4" height="4" rx="0.8" /><rect x="1" y="7" width="4" height="4" rx="0.8" /><rect x="7" y="7" width="4" height="4" rx="0.8" /></svg>
@@ -850,16 +1008,16 @@ export default function SearchPage() {
                             </button>
                             <div className="relative" ref={sortRef}>
                                 <button onClick={() => setSortOpen(!sortOpen)}
-                                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06] text-sm text-text-2 hover:text-white transition-all">
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06] text-sm text-text-2 hover:text-text-1 transition-all">
                                     <span className="text-text-3 text-[10px] font-bold uppercase tracking-wider">Sort</span>
-                                    <span className="text-white font-medium">{sortBy}</span>
+                                    <span className="text-text-1 font-medium">{sortBy}</span>
                                     <svg className={`w-3.5 h-3.5 transition-transform ${sortOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                                 </button>
                                 {sortOpen && (
                                     <div className="absolute right-0 top-full mt-2 w-52 bg-[#0e0e1a] border border-white/[0.08] rounded-2xl shadow-2xl z-50 overflow-hidden">
                                         {SORT_OPTIONS.map(opt => (
                                             <button key={opt} onClick={() => { setSortBy(opt); setSortOpen(false); }}
-                                                className={`w-full text-left px-5 py-3 text-sm transition-all ${opt === sortBy ? 'bg-accent/10 text-accent font-bold' : 'text-text-2 hover:bg-white/[0.04] hover:text-white'}`}>
+                                                className={`w-full text-left px-5 py-3 text-sm transition-all ${opt === sortBy ? 'bg-accent/10 text-accent font-bold' : 'text-text-2 hover:bg-white/[0.04] hover:text-text-1'}`}>
                                                 {opt}
                                             </button>
                                         ))}
@@ -879,7 +1037,7 @@ export default function SearchPage() {
                             const isBulkAdding = bulkAddingKey === group.key;
                             const isBulkDone = bulkAddedKeys.has(group.key);
                             return (
-                                <div key={group.key} style={{ contentVisibility: 'auto', containIntrinsicSize: '180px' }} className="rounded-2xl bg-gradient-to-br from-white/[0.03] to-white/[0.015] border border-accent/15 overflow-hidden backdrop-blur-sm shadow-[0_16px_35px_-28px_rgba(124,106,255,0.95)]">
+                                <div key={group.key} style={{ contentVisibility: 'auto', containIntrinsicSize: '180px' }} className="rounded-2xl bg-surface border border-white/[0.06] overflow-hidden">
                                     {/* Group header — div not button to avoid nested button violation */}
                                     <div
                                         role="button" tabIndex={0}
@@ -900,7 +1058,7 @@ export default function SearchPage() {
                                             )}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <h3 className="text-white font-bold truncate">{group.showName}</h3>
+                                            <h3 className="text-text-1 font-bold truncate">{group.showName}</h3>
                                             <p className="text-[11px] text-text-3 mt-0.5">
                                                 Season {group.season}
                                                 <span className="mx-1.5 opacity-30">·</span>
@@ -916,7 +1074,7 @@ export default function SearchPage() {
                                             <button
                                                 onClick={e => { e.stopPropagation(); handleAddAll(group); }}
                                                 disabled={isBulkAdding || isBulkDone}
-                                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${isBulkDone ? 'bg-teal/15 text-teal border border-teal/20' : isBulkAdding ? 'bg-accent/10 text-accent/50 border border-accent/15 cursor-wait' : 'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'}`}>
+                                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${isBulkDone ? 'bg-teal/15 text-teal border border-teal/20' : isBulkAdding ? 'bg-accent/10 text-accent/50 border border-accent/15 cursor-wait' : 'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-black'}`}>
                                                 {isBulkDone ? '✓ All Added' : isBulkAdding ? 'Adding…' : `+ All ${epCount}`}
                                             </button>
                                             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
@@ -939,7 +1097,7 @@ export default function SearchPage() {
                                                                 </span>
                                                             )}
                                                             <div className="flex-1 min-w-0">
-                                                                <p className="text-sm text-white/80 truncate">{res.title}</p>
+                                                                <p className="text-sm text-text-1/80 truncate">{res.title}</p>
                                                                 <div className="flex items-center gap-3 text-[10px] mt-0.5">
                                                                     <span className="text-text-3 font-mono">{res.size}</span>
                                                                     <span className="text-teal font-bold">{res.seeders}S</span>
@@ -954,11 +1112,23 @@ export default function SearchPage() {
                                                                         : 'bg-white/[0.04] border-white/[0.08] text-text-3 hover:text-accent hover:border-accent/30 hover:bg-accent/10'}`}>
                                                                     📂
                                                                 </button>
+                                                                <button onClick={() => handleQuickWatch(res.id)} disabled={quickId === res.id}
+                                                                    title="Quick Watch — stream without downloading"
+                                                                    className="px-2.5 py-2 rounded-xl text-xs font-bold border transition-all bg-white/[0.04] text-text-2 border-white/[0.08] hover:text-accent hover:border-accent/30 hover:bg-accent/10 disabled:opacity-60">
+                                                                    {quickId === res.id ? '⏳' : (
+                                                                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" /></svg>
+                                                                    )}
+                                                                </button>
+                                                                <button onClick={() => handleStream(res.id)} disabled={streamingId === res.id}
+                                                                    title="Stream while downloading (saves)"
+                                                                    className="px-2.5 py-2 rounded-xl text-xs font-bold border transition-all bg-teal/10 text-teal border-teal/15 hover:bg-teal hover:text-text-1 disabled:opacity-60">
+                                                                    {streamingId === res.id ? '⏳' : '▶'}
+                                                                </button>
                                                                 <button onClick={() => handleAdd(res.id)} disabled={res.inLibrary || addingId === res.id || addedIds.has(res.id)}
                                                                     className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
                                                                         errorId === res.id ? 'bg-red-500/15 text-red-400' :
                                                                             addingId === res.id ? 'bg-accent/10 text-accent/60' :
-                                                                                'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
+                                                                                'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-black'
                                                                         }`}>
                                                                     {res.inLibrary ? '✓' : addedIds.has(res.id) ? '✓' : errorId === res.id ? '✗' : addingId === res.id ? '...' : '+'}
                                                                 </button>
@@ -988,7 +1158,7 @@ export default function SearchPage() {
                                                                                             /\.(nfo|txt)$/i.test(f.name) ? '📄' :
                                                                                                 /\.(jpg|jpeg|png|gif)$/i.test(f.name) ? '🖼️' : '📦'}
                                                                                 </span>
-                                                                                <span className="flex-1 min-w-0 text-white truncate">{f.name}</span>
+                                                                                <span className="flex-1 min-w-0 text-text-1 truncate">{f.name}</span>
                                                                                 <span className="shrink-0 text-text-3 font-mono">{formatFileSize(f.size)}</span>
                                                                             </div>
                                                                         ))}
@@ -1007,10 +1177,10 @@ export default function SearchPage() {
 
                         {/* Flat results (movies + ungrouped) */}
                         {flatItems.map((res) => {
-                            const flatKey = `flat_${res.id}`;
+                            const flatKey = flatPosterKey(res.title);
                             const flatPoster = posters[flatKey];
                             return (
-                                <div key={res.id} style={{ contentVisibility: 'auto', containIntrinsicSize: '144px' }} className="rounded-2xl bg-gradient-to-br from-white/[0.03] to-white/[0.015] border border-white/[0.06] overflow-hidden transition-all hover:border-accent/25 hover:shadow-[0_18px_42px_-28px_rgba(124,106,255,0.85)]">
+                                <div key={res.id} style={{ contentVisibility: 'auto', containIntrinsicSize: '144px' }} className="rounded-2xl bg-surface border border-white/[0.06] overflow-hidden transition-colors hover:border-white/[0.12]">
                                     {/* Result Row */}
                                     <div className="group flex items-center gap-4 p-4 hover:bg-white/[0.045] transition-all">
                                         {/* Poster thumbnail */}
@@ -1021,11 +1191,11 @@ export default function SearchPage() {
                                                 // eslint-disable-next-line @next/next/no-img-element
                                                 <img src={flatPoster} alt={res.title} className="w-full h-full object-cover" onError={() => setPosters(prev => ({ ...prev, [flatKey]: null }))} />
                                             ) : (
-                                                <svg className="w-4 h-4 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" /></svg>
+                                                <svg className="w-4 h-4 text-text-1/20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" /></svg>
                                             )}
                                         </div>
                                         <div className="flex-1 min-w-0 space-y-1.5">
-                                            <h3 className="text-white font-bold group-hover:text-accent transition-colors truncate">{res.title}</h3>
+                                            <h3 className="text-text-1 font-bold group-hover:text-accent transition-colors truncate">{res.title}</h3>
                                             <div className="flex items-center gap-3 text-xs">
                                                 <span className="text-text-3 font-mono">{res.size}</span>
                                                 <span className="flex items-center gap-1">
@@ -1063,11 +1233,25 @@ export default function SearchPage() {
                                                     : 'bg-white/[0.04] border-white/[0.08] text-text-3 hover:text-teal hover:border-teal/30 hover:bg-teal/10'}`}>
                                                 CC
                                             </button>
+                                            {!res.inLibrary && (
+                                                <button onClick={() => handleQuickWatch(res.id)} disabled={quickId === res.id}
+                                                    title="Quick Watch — stream without downloading (nothing saved)"
+                                                    className="px-3 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 bg-white/[0.04] text-text-2 border-white/[0.08] hover:text-accent hover:border-accent/30 hover:bg-accent/10 disabled:opacity-60">
+                                                    {quickId === res.id ? '⏳' : (
+                                                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" /></svg>
+                                                    )}
+                                                </button>
+                                            )}
+                                            <button onClick={() => handleStream(res.id)} disabled={streamingId === res.id}
+                                                title="Stream while downloading (saves to your library)"
+                                                className="px-4 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 bg-teal/10 text-teal border-teal/15 hover:bg-teal hover:text-text-1 disabled:opacity-60">
+                                                {streamingId === res.id ? '⏳' : res.inLibrary ? '▶ Play' : '▶ Stream'}
+                                            </button>
                                             <button onClick={() => handleAdd(res.id)} disabled={res.inLibrary || addingId === res.id || addedIds.has(res.id)}
                                                 className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:cursor-default ${res.inLibrary ? 'bg-teal/15 text-teal border border-teal/20' : addedIds.has(res.id) ? 'bg-teal/15 text-teal border border-teal/20' :
                                                     errorId === res.id ? 'bg-red-500/15 text-red-400' :
                                                         addingId === res.id ? 'bg-accent/10 text-accent/60' :
-                                                            'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-white'
+                                                            'bg-accent/10 text-accent border border-accent/15 hover:bg-accent hover:text-black'
                                                     }`}>
                                                 {res.inLibrary ? 'In Library' : addedIds.has(res.id) ? '✓ Added' : errorId === res.id ? '✗ Failed' : addingId === res.id ? '⏳ Adding...' : 'Download'}
                                             </button>
@@ -1098,7 +1282,7 @@ export default function SearchPage() {
                                                                         /\.(nfo|txt)$/i.test(f.name) ? '📄' :
                                                                             /\.(jpg|jpeg|png|gif)$/i.test(f.name) ? '🖼️' : '📦'}
                                                             </span>
-                                                            <span className="flex-1 min-w-0 text-white truncate">{f.name}</span>
+                                                            <span className="flex-1 min-w-0 text-text-1 truncate">{f.name}</span>
                                                             <span className="shrink-0 text-text-3 font-mono">{formatFileSize(f.size)}</span>
                                                         </div>
                                                     ))}
@@ -1118,14 +1302,14 @@ export default function SearchPage() {
                                                     value={subQuery}
                                                     onChange={e => setSubQuery(e.target.value)}
                                                     onKeyDown={e => { if (e.key === 'Enter') searchSubs(subQuery, subLang); }}
-                                                    className="flex-1 min-w-[160px] bg-white/[0.05] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-teal/40 placeholder-text-3"
+                                                    className="flex-1 min-w-[160px] bg-white/[0.05] border border-white/[0.08] rounded-xl px-3 py-2 text-text-1 text-xs focus:outline-none focus:border-teal/40 placeholder-text-3"
                                                     placeholder="Movie name..."
                                                 />
                                                 <select
                                                     value={subLang}
                                                     onChange={e => { setSubLang(e.target.value); searchSubs(subQuery, e.target.value); }}
                                                     style={{ colorScheme: 'dark', backgroundColor: '#0e0e1a' }}
-                                                    className="border border-white/[0.08] rounded-xl px-3 py-2 text-white text-xs focus:outline-none cursor-pointer">
+                                                    className="border border-white/[0.08] rounded-xl px-3 py-2 text-text-1 text-xs focus:outline-none cursor-pointer">
                                                     {LANGS.map(l => <option key={l.code} value={l.code} style={{ backgroundColor: '#0e0e1a' }}>{l.label}</option>)}
                                                 </select>
                                                 <button
@@ -1157,7 +1341,7 @@ export default function SearchPage() {
                                                             <div className="flex-1 min-w-0 space-y-0.5">
                                                                 <div className="flex items-center gap-2 flex-wrap">
                                                                     {sub.exact && <span className="text-[9px] font-bold bg-teal/20 text-teal px-1.5 py-0.5 rounded-md">⚡ EXACT</span>}
-                                                                    <span className="text-white font-medium truncate">{sub.name}</span>
+                                                                    <span className="text-text-1 font-medium truncate">{sub.name}</span>
                                                                     {sub.hearing && <span className="text-[9px] bg-white/[0.06] text-text-3 px-1.5 py-0.5 rounded-md">HI</span>}
                                                                 </div>
                                                                 <div className="flex items-center gap-3 text-text-3">
@@ -1176,7 +1360,7 @@ export default function SearchPage() {
                                                                         ? 'bg-white/[0.04] text-text-3 cursor-wait'
                                                                         : sub.exact
                                                                             ? 'bg-teal/15 border border-teal/25 text-teal hover:bg-teal/30'
-                                                                            : 'bg-white/[0.06] border border-white/[0.08] text-text-2 hover:text-white hover:bg-white/[0.12]'}`}>
+                                                                            : 'bg-white/[0.06] border border-white/[0.08] text-text-2 hover:text-text-1 hover:bg-white/[0.12]'}`}>
                                                                 {downloadedIds.has(sub.id) ? '✓ Saved' : downloadingId === sub.id ? '...' : 'Download'}
                                                             </button>
                                                         </div>
@@ -1191,13 +1375,13 @@ export default function SearchPage() {
                     </div>
                 </>
             ) : searchQuery && !isSearching && searchedOnce ? (
-                <div className="text-center py-20 bg-white/[0.01] rounded-3xl border border-dashed border-white/[0.04]">
-                    <div className="text-4xl mb-4 opacity-20">🔍</div>
+                <div className="text-center py-20 bg-white/[0.01] rounded-3xl border border-dashed border-white/[0.06]">
+                    <svg className="w-10 h-10 mx-auto mb-4 text-text-3/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
                     <p className="text-text-3 font-medium">No results found for &quot;{searchQuery}&quot;</p>
                 </div>
             ) : (
                 <div className="text-center py-32">
-                    <div className="text-5xl mb-6 opacity-20 animate-float">☁️</div>
+                    <svg className="w-12 h-12 mx-auto mb-6 text-text-3/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M7 3v18M17 3v18M3 8h4m10 0h4M3 16h4m10 0h4" /></svg>
                     <p className="text-text-3 font-medium">Start exploring across all providers</p>
                 </div>
             )}
@@ -1206,24 +1390,24 @@ export default function SearchPage() {
             {chatMounted && isEngineConnected && createPortal(
                 <div className="fixed bottom-5 right-5 z-[220] w-[340px] max-w-[calc(100vw-1.5rem)]">
                     {chatOpen ? (
-                        <div className="rounded-2xl border border-white/[0.1] bg-[#0f1024]/95 backdrop-blur-md shadow-[0_22px_60px_-28px_rgba(0,0,0,0.9)] overflow-hidden">
+                        <div className="rounded-2xl border border-white/[0.08] bg-elevated shadow-cinema-lg overflow-hidden">
                             <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08]">
                                 <div>
-                                    <h3 className="text-sm font-bold text-white">Movie Helper</h3>
+                                    <h3 className="text-sm font-bold text-text-1">Movie Helper</h3>
                                     <p className="text-[10px] text-text-3">Ask naturally, tap to search</p>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <button
                                         onClick={handleChatRefresh}
                                         disabled={chatBusy}
-                                        className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-white/[0.04] border border-white/[0.08] text-text-2 hover:text-white hover:bg-white/[0.1] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                        className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-white/[0.04] border border-white/[0.08] text-text-2 hover:text-text-1 hover:bg-white/[0.1] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                                         title="Refresh chat"
                                     >
                                         {chatBusy ? '...' : 'Refresh'}
                                     </button>
                                     <button
                                         onClick={() => setChatOpen(false)}
-                                        className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] text-text-3 hover:text-white hover:bg-white/[0.1] transition-all"
+                                        className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] text-text-3 hover:text-text-1 hover:bg-white/[0.1] transition-all"
                                         title="Close"
                                     >
                                         ×
@@ -1235,7 +1419,7 @@ export default function SearchPage() {
                                 {chatMessages.map((m, idx) => (
                                     <div key={idx} className={`space-y-2 ${m.role === 'user' ? 'text-right' : ''}`}>
                                         <div className={`inline-block max-w-[90%] px-3 py-2 rounded-xl text-xs ${m.role === 'user'
-                                            ? 'bg-accent/20 border border-accent/25 text-white'
+                                            ? 'bg-accent/20 border border-accent/25 text-text-1'
                                             : 'bg-white/[0.04] border border-white/[0.08] text-text-2'
                                             }`}>
                                             {m.text}
@@ -1288,12 +1472,12 @@ export default function SearchPage() {
                                     onChange={e => setChatInput(e.target.value)}
                                     onKeyDown={e => { if (e.key === 'Enter') handleChatSend(); }}
                                     placeholder="e.g. mind bending movie like Inception"
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white placeholder-text-3 focus:outline-none focus:border-accent/40"
+                                    className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-text-1 placeholder-text-3 focus:outline-none focus:border-accent/40"
                                 />
                                 <button
                                     onClick={handleChatSend}
                                     disabled={chatBusy || chatInput.trim().length === 0}
-                                    className="px-3 py-2 rounded-xl text-xs font-bold bg-accent/20 border border-accent/30 text-accent hover:bg-accent/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                    className="px-4 py-2 rounded-xl text-xs font-bold bg-accent text-black hover:bg-accent-strong transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                     {chatBusy ? '...' : 'Send'}
                                 </button>
@@ -1302,14 +1486,25 @@ export default function SearchPage() {
                     ) : (
                         <button
                             onClick={() => setChatOpen(true)}
-                            className="ml-auto flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-accent to-teal text-white text-xs font-bold shadow-[0_14px_34px_-18px_rgba(84,120,255,0.95)] hover:brightness-110 transition-all"
+                            className="ml-auto flex items-center gap-2 px-4 py-3 rounded-xl bg-accent text-black text-xs font-bold shadow-accent-glow hover:bg-accent-strong transition-all"
                         >
-                            <span>🤖</span>
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M9 10h.01M13 10h.01M17 10h.01" /></svg>
                             <span>Movie Helper</span>
                         </button>
                     )}
                 </div>,
                 document.body
+            )}
+
+            {streamTarget && (
+                <StreamPlayer
+                    infoHash={streamTarget.infoHash}
+                    name={streamTarget.name}
+                    initialFileIdx={streamTarget.fileIdx}
+                    initialTime={streamTarget.time}
+                    ephemeral={streamTarget.ephemeral}
+                    onClose={() => { setStreamTarget(null); setContinueList(listContinueWatching()); }}
+                />
             )}
         </div>
     );

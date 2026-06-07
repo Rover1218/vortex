@@ -383,14 +383,15 @@ export async function POST(req: NextRequest) {
                 Authorization: `Bearer ${groqKey}`,
             },
             body: JSON.stringify({
-                model: 'llama-3.1-8b-instant',
-                temperature: 0.72,
-                top_p: 0.92,
-                max_tokens: 320,
+                model: 'llama-3.3-70b-versatile',
+                temperature: 0.7,
+                top_p: 0.9,
+                max_tokens: 500,
+                response_format: { type: 'json_object' },
                 messages: [
                     {
                         role: 'system',
-                        content: 'You are a movie and TV recommendation assistant inside a torrent search app. Keep it conversational and context-aware. Return ONLY compact JSON: {"reply":"short natural line","suggestionItems":[{"title":"title1","reason":"short why"}],"contextTags":["tag1","tag2","tag3"]}. CRITICAL: suggestionItems.title must always be exact, real released movie/show titles that can be searched directly. Never output generic phrases like "mind bending sci-fi" as titles. Never repeat avoided titles if alternatives exist. Provide 4-5 suggestionItems whenever possible. Keep reasons under 14 words.',
+                        content: 'You are a movie and TV recommendation assistant inside a torrent search app. Be conversational and genuinely context-aware: use the full conversation history, the user\'s mood, language, genre, era, and any reference titles they mention. Return ONLY compact JSON: {"reply":"short natural line that acknowledges what they asked","suggestionItems":[{"title":"exact title","reason":"short why it fits"}],"contextTags":["tag1","tag2","tag3"]}. RULES: (1) Provide EXACTLY 5 suggestionItems. (2) suggestionItems.title must be exact, real, released movie/show titles searchable as-is — never generic phrases like "mind bending sci-fi". (3) Every pick must clearly match the user\'s request; do NOT pad with unrelated popular titles. (4) Always include 3 contextTags describing the genre/language/mood you inferred. (5) Never repeat avoided titles. (6) Keep each reason under 14 words and tie it to their request.',
                     },
                     ...history.map(item => ({
                         role: item.role === 'bot' ? 'assistant' : 'user',

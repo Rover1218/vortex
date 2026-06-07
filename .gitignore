@@ -44,10 +44,13 @@ torrents.json
 settings.json
 stats.json
 local-auth.json
+local-token.json
 vortex-firebase-adminsdk.json
 .engine-build/
 dist/
 dist-desktop/
+dist-release/
+.stream-cache/
 public/downloads/README-engine.txt
 public/downloads/*.exe
 public/downloads/vortex-firebase-adminsdk.json

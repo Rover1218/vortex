@@ -27,7 +27,7 @@ export default function ProtectedLayout({
     return (
       <div className="flex items-center justify-center min-h-screen bg-base">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-teal flex items-center justify-center text-white text-lg font-black animate-pulse">
+          <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center text-black text-lg font-black animate-pulse">
             V
           </div>
           <span className="text-text-2 text-sm">Loading...</span>

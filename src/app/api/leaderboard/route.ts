@@ -65,7 +65,10 @@ export async function GET(req: NextRequest) {
             baseRows.map(async (row) => {
                 try {
                     const user = await adminAuth.getUser(row.uid);
-                    const rawName = user.displayName || user.email || maskUid(row.uid);
+                    // Never fall back to email — that would leak every user's email
+                    // address to any logged-in viewer. Use the public display name,
+                    // otherwise a masked id.
+                    const rawName = user.displayName || maskUid(row.uid);
                     uidToName.set(row.uid, normalizeDisplayName(rawName));
                 } catch {
                     uidToName.set(row.uid, normalizeDisplayName(maskUid(row.uid)));
@@ -75,7 +78,9 @@ export async function GET(req: NextRequest) {
 
         const rows: LeaderboardRow[] = baseRows.map((row, idx) => ({
             rank: idx + 1,
-            uid: row.uid,
+            // Return a masked id only — the client uses it solely as a list key,
+            // so there's no need to expose every user's full Firebase UID.
+            uid: maskUid(row.uid),
             displayName: normalizeDisplayName(uidToName.get(row.uid) || maskUid(row.uid)),
             downloaded: row.downloaded,
             seeded: row.seeded,

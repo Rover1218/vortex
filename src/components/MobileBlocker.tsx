@@ -22,7 +22,7 @@ export default function MobileBlocker({ children }: { children: React.ReactNode 
   if (!checked) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-base">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-teal flex items-center justify-center text-white text-lg font-black animate-pulse">V</div>
+        <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center text-black text-lg font-black animate-pulse">V</div>
       </div>
     );
   }
@@ -39,13 +39,13 @@ export default function MobileBlocker({ children }: { children: React.ReactNode 
         <div className="relative z-10 text-center max-w-sm mx-auto">
           {/* Logo */}
           <div className="relative inline-block mb-8">
-            <div className="absolute inset-0 w-20 h-20 rounded-2xl bg-gradient-to-br from-accent to-teal blur-xl opacity-40" />
-            <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-accent to-teal flex items-center justify-center text-white text-3xl font-black shadow-xl ring-1 ring-white/10 mx-auto">
+            <div className="absolute inset-0 w-20 h-20 rounded-2xl bg-accent blur-xl opacity-30" />
+            <div className="relative w-20 h-20 rounded-2xl bg-accent flex items-center justify-center text-black text-3xl font-black shadow-xl ring-1 ring-white/10 mx-auto">
               V
             </div>
           </div>
 
-          <h1 className="text-3xl font-black tracking-tight text-white mb-3">Desktop Only</h1>
+          <h1 className="text-3xl font-black tracking-tight text-text-1 mb-3">Desktop Only</h1>
           <p className="text-base text-text-2 leading-relaxed mb-8">
             Vortex is designed for desktop browsers only. Please visit us from your PC or laptop for the best experience.
           </p>

@@ -79,7 +79,7 @@ export default function EngineStatusOverlay() {
                     )}
                 </div>
 
-                <h2 className="text-2xl font-black text-white mb-2 tracking-tight">
+                <h2 className="text-2xl font-black text-text-1 mb-2 tracking-tight">
                     {shouldShowOutdatedModal ? "Update Required" : "Vortex Engine Offline"}
                 </h2>
                 <p className="text-text-2 mb-8 text-sm leading-relaxed">
@@ -91,7 +91,7 @@ export default function EngineStatusOverlay() {
 
                 <div className="space-y-4">
                     <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.05]">
-                        <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-2">Instructions</h3>
+                        <h3 className="text-xs font-bold text-text-1 uppercase tracking-wider mb-2">Instructions</h3>
                         <ol className="text-sm text-text-3 space-y-2 list-decimal list-inside marker:text-accent">
                             {shouldShowOutdatedModal ? (
                                 <>
@@ -113,7 +113,7 @@ export default function EngineStatusOverlay() {
                         {!shouldShowOutdatedModal && (
                             <button
                                 onClick={() => { window.location.href = 'vortex://launch'; }}
-                                className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-white/[0.05] text-white border border-white/10 hover:bg-white/[0.1] transition-all duration-300"
+                                className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-white/[0.05] text-text-1 border border-white/10 hover:bg-white/[0.1] transition-all duration-300"
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                     <polyline points="15 3 21 3 21 9"></polyline>
@@ -126,7 +126,7 @@ export default function EngineStatusOverlay() {
 
                         <button
                             onClick={() => window.open(DOWNLOAD_LINK, "_blank")}
-                            className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-gradient-to-r from-accent to-teal text-white shadow-xl shadow-accent/20 hover:shadow-accent/40 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+                            className="flex items-center justify-center gap-2 w-full py-4 text-sm font-bold rounded-xl bg-accent text-black shadow-accent-glow hover:bg-accent-strong transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />

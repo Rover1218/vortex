@@ -11,21 +11,33 @@ const config: Config = {
     theme: {
         extend: {
             colors: {
-                base: "#0a0a0f",
-                surface: "#111118",
-                elevated: "#1a1a26",
-                'vortex-border': "#ffffff12",
-                accent: "#6c63ff",
-                teal: "#00d4aa",
-                danger: "#ff4d6d",
-                warning: "#f59e0b",
-                'text-1': "#f0f0ff",
-                'text-2': "#8888aa",
-                'text-3': "#55556a",
+                // Cinematic dark — true near-black neutrals, warm amber-gold accent.
+                base: "#09090b",
+                surface: "#131316",
+                elevated: "#1c1c21",
+                'vortex-border': "#ffffff14",
+                accent: "#f5a623",          // warm amber-gold (brand / primary CTAs)
+                'accent-strong': "#ffc04d", // hover / glow
+                teal: "#2dd4a7",            // success / seeding
+                danger: "#ff5470",
+                warning: "#fbbf24",
+                'text-1': "#f7f6f3",        // warm white
+                'text-2': "#9b9ba6",
+                'text-3': "#60606b",
             },
             fontFamily: {
                 sans: ["var(--font-dm-sans)"],
                 mono: ["var(--font-jetbrains-mono)"],
+            },
+            borderRadius: {
+                'xl2': '1.125rem',
+                '2xl': '1.25rem',
+                '3xl': '1.75rem',
+            },
+            boxShadow: {
+                'cinema': '0 24px 60px -28px rgba(0,0,0,0.85)',
+                'cinema-lg': '0 40px 120px -40px rgba(0,0,0,0.9)',
+                'accent-glow': '0 14px 40px -16px rgba(245,166,35,0.55)',
             },
             animation: {
                 shimmer: "shimmer 2s infinite linear",

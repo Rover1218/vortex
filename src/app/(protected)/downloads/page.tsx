@@ -2,6 +2,8 @@
 
 import { useTorrents } from "@/context/TorrentContext";
 import RatioCoach from "@/components/RatioCoach";
+import StreamPlayer from "@/components/StreamPlayer";
+import { listContinueWatching, removeProgress, removeProgressByInfoHash, type WatchEntry } from "@/lib/watchProgress";
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import axios from "axios";
 
@@ -114,7 +116,11 @@ IconCheckCircle.displayName = "IconCheckCircle";
 export default function DownloadsPage() {
     const { torrents, totalDownloadSpeed, totalUploadSpeed, pauseTorrent, resumeTorrent, startSeeding, setTorrentFileSelection, stopSeeding, deleteWithFiles, diskInfo } = useTorrents();
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+    const [streamTarget, setStreamTarget] = useState<{ infoHash: string; name: string; fileIdx?: number; time?: number } | null>(null);
+    const [continueList, setContinueList] = useState<WatchEntry[]>([]);
     const [activeTab, setActiveTab] = useState<Tab>("All");
+
+    useEffect(() => { setContinueList(listContinueWatching()); }, []);
     const [drawerHash, setDrawerHash] = useState<string | null>(null);
     const [drawerFiles, setDrawerFiles] = useState<TorrentFile[]>([]);
     const [drawerLoading, setDrawerLoading] = useState(false);
@@ -154,8 +160,8 @@ export default function DownloadsPage() {
                 pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
                 ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke();
             };
-            drawLine(ulHistory.current, 'rgba(124,106,255,0.65)', 'rgba(124,106,255,0.07)');
-            drawLine(dlHistory.current, 'rgba(45,212,191,0.9)', 'rgba(45,212,191,0.1)');
+            drawLine(ulHistory.current, 'rgba(245,166,35,0.7)', 'rgba(245,166,35,0.08)');
+            drawLine(dlHistory.current, 'rgba(45,212,167,0.9)', 'rgba(45,212,167,0.1)');
         });
 
         return () => {
@@ -280,7 +286,7 @@ export default function DownloadsPage() {
     }, [torrents, activeTab]);
 
     const TABS: { id: Tab; label: string; color: string; activeClass: string }[] = [
-        { id: "All", label: "All", color: "text-text-2", activeClass: "bg-white/[0.08] text-white border-white/[0.12]" },
+        { id: "All", label: "All", color: "text-text-2", activeClass: "bg-accent/15 text-accent border-accent/30" },
         { id: "Downloading", label: "Downloading", color: "text-accent", activeClass: "bg-accent/15 text-accent border-accent/30" },
         { id: "Paused", label: "Paused", color: "text-warning", activeClass: "bg-warning/15 text-warning border-warning/30" },
         { id: "Completed", label: "Completed", color: "text-teal", activeClass: "bg-teal/15 text-teal border-teal/30" },
@@ -289,28 +295,23 @@ export default function DownloadsPage() {
 
     return (
         <div className="w-full max-w-full space-y-6 pb-10 relative isolate overflow-x-hidden">
-            <div className="pointer-events-none absolute -top-14 left-0 h-72 w-72 rounded-full bg-accent/10 blur-2xl" />
-            <div className="pointer-events-none absolute top-40 right-0 h-80 w-80 rounded-full bg-teal/8 blur-2xl" />
-
             {/* Header */}
-            <div className="relative z-10 flex items-end justify-between rounded-3xl border border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-white/[0.015] px-6 py-5">
+            <div className="relative z-10 flex items-end justify-between rounded-2xl border border-white/[0.06] bg-surface px-6 py-5 shadow-cinema">
                 <div>
-                    <h1 className="text-4xl font-black tracking-tight mb-1">
-                        <span className="bg-gradient-to-r from-white to-text-2 bg-clip-text text-transparent">Downloads</span>
-                    </h1>
+                    <h1 className="cine-title text-4xl font-black tracking-tight mb-1 text-text-1">Downloads</h1>
                     <p className="text-text-3 text-sm">{torrents.length} {torrents.length === 1 ? "task" : "tasks"} currently tracked</p>
                 </div>
             </div>
 
             {/* Speed sparkline + disk usage */}
             {torrents.some(t => t.status === "Downloading" || t.status === "Seeding") && (
-                <div className="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] px-5 pt-4 pb-3 space-y-3 backdrop-blur-sm shadow-[0_20px_48px_-30px_rgba(82,133,255,0.55)]">
+                <div className="rounded-2xl bg-surface border border-white/[0.06] px-5 pt-4 pb-3 space-y-3 shadow-cinema">
                     <div className="flex items-center justify-between">
                         <div className="flex gap-5 text-[11px] font-mono">
                             <span className="flex items-center gap-1.5 text-teal"><IconDown /><span className="font-black">{formatSpeed(totalDownloadSpeed)}</span></span>
                             <span className="flex items-center gap-1.5 text-accent"><IconUp /><span className="font-black">{formatSpeed(totalUploadSpeed)}</span></span>
                         </div>
-                        <span className="text-[9px] text-text-3/40 uppercase tracking-widest">last 60 s</span>
+                        <span className="text-[9px] text-text-3 uppercase tracking-widest">last 60 s</span>
                     </div>
                     <canvas ref={canvasRef} width={800} height={52}
                         className="w-full rounded-lg block"
@@ -324,10 +325,10 @@ export default function DownloadsPage() {
                             <div className="space-y-1.5">
                                 <div className="flex justify-between text-[10px] text-text-3">
                                     <span>Disk · <span className="text-text-2 font-mono">{fmtD(diskInfo.used)}</span> used</span>
-                                    <span><span className={`font-mono font-bold ${freePct < 10 ? 'text-red-400' : freePct < 25 ? 'text-warning' : 'text-teal'}`}>{fmtD(diskInfo.free)}</span> free of {fmtD(diskInfo.total)}</span>
+                                    <span><span className={`font-mono font-bold ${freePct < 10 ? 'text-danger' : freePct < 25 ? 'text-warning' : 'text-teal'}`}>{fmtD(diskInfo.free)}</span> free of {fmtD(diskInfo.total)}</span>
                                 </div>
-                                <div className="h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
-                                    <div className={`h-full rounded-full transition-all duration-700 ${usedPct > 90 ? 'bg-red-400' : usedPct > 75 ? 'bg-warning' : 'bg-gradient-to-r from-accent to-teal'}`}
+                                <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                    <div className={`h-full rounded-full transition-all duration-700 ${usedPct > 90 ? 'bg-danger' : usedPct > 75 ? 'bg-warning' : 'bg-accent'}`}
                                         style={{ width: `${Math.min(usedPct, 100)}%` }} />
                                 </div>
                             </div>
@@ -337,17 +338,60 @@ export default function DownloadsPage() {
             )}
 
             {/* Tabs */}
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-2 sm:p-3 flex gap-2 flex-wrap">
+            <div className="rounded-2xl border border-white/[0.06] bg-surface p-2 sm:p-3 flex gap-2 flex-wrap shadow-cinema">
                 {TABS.map(tab => (
                     <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all ${activeTab === tab.id ? tab.activeClass : `bg-white/[0.02] border-white/[0.06] ${tab.color} hover:bg-white/[0.05]`}`}>
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all ${activeTab === tab.id ? tab.activeClass : `bg-elevated border-white/[0.06] ${tab.color} hover:bg-white/[0.05]`}`}>
                         {tab.label}
                         {counts[tab.id] > 0 && (
-                            <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono ${activeTab === tab.id ? "bg-white/20" : "bg-white/[0.06] text-text-3"}`}>{counts[tab.id]}</span>
+                            <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono ${activeTab === tab.id ? "bg-black/25" : "bg-white/[0.06] text-text-3"}`}>{counts[tab.id]}</span>
                         )}
                     </button>
                 ))}
             </div>
+
+            {/* Continue Watching */}
+            {continueList.length > 0 && (
+                <div className="rounded-2xl border border-white/[0.06] bg-surface p-4 shadow-cinema">
+                    <div className="flex items-center gap-2 mb-3">
+                        <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                        <h2 className="text-sm font-bold text-text-1">Continue Watching</h2>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {continueList.slice(0, 6).map((e) => {
+                            const pct = e.dur > 0 ? Math.min(100, Math.round((e.t / e.dur) * 100)) : 0;
+                            return (
+                                <div
+                                    key={`${e.infoHash}:${e.fileIdx}`}
+                                    onClick={() => setStreamTarget({ infoHash: e.infoHash, name: e.title, fileIdx: e.fileIdx, time: e.t })}
+                                    className="relative text-left rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:border-accent/30 transition-all p-3 group cursor-pointer"
+                                >
+                                    <button
+                                        onClick={(ev) => { ev.stopPropagation(); removeProgress(e.infoHash, e.fileIdx); setContinueList(listContinueWatching()); }}
+                                        title="Remove from Continue Watching"
+                                        className="absolute top-2 right-2 w-6 h-6 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-white/[0.1] opacity-0 group-hover:opacity-100 transition-all z-10"
+                                    >
+                                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                                    </button>
+                                    <div className="flex items-center gap-2 mb-2 pr-6">
+                                        <span className="w-7 h-7 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0 group-hover:bg-accent group-hover:text-black transition-colors">
+                                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7V5z" /></svg>
+                                        </span>
+                                        <div className="min-w-0">
+                                            <div className="text-[12px] font-semibold text-text-1 truncate">{e.title}</div>
+                                            <div className="text-[10px] text-text-3 truncate">{e.name}</div>
+                                        </div>
+                                    </div>
+                                    <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                                        <div className="h-full bg-accent rounded-full" style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <div className="mt-1 text-[10px] text-text-3 font-mono">{pct}% watched · resume</div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             {/* Ratio Coach */}
             {torrents.length > 0 && <RatioCoach />}
@@ -363,20 +407,20 @@ export default function DownloadsPage() {
                         const isDone = isCompleted || isSeeding;
                         const totalDownloaded = t.downloaded || 0;
                         const totalSeeded = t.uploaded || 0;
-                        const barGradient = isDone ? "from-teal to-emerald-400" : isPaused ? "from-warning to-amber-400" : "from-accent to-teal";
+                        const barFill = isDone ? "bg-teal" : isPaused ? "bg-warning" : "bg-accent";
                         const isActive = t.status === "Downloading" || t.status === "Seeding"; // has real-time files
 
                         return (
-                            <div key={t.infoHash} style={{ contentVisibility: 'auto', containIntrinsicSize: '140px', willChange: 'transform' }} className="group rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-white/[0.08] hover:border-accent/30 transition-all overflow-hidden hover:scale-[1.02]">
-                                <div className="h-[3px] bg-white/[0.05]">
-                                    <div className={`h-full bg-gradient-to-r ${barGradient} transition-all duration-700`} style={{ width: `${Math.min(progress, 100)}%` }} />
+                            <div key={t.infoHash} style={{ contentVisibility: 'auto', containIntrinsicSize: '140px', willChange: 'transform' }} className="group rounded-2xl bg-surface border border-white/[0.06] hover:border-accent/40 transition-all overflow-hidden shadow-cinema">
+                                <div className="h-[3px] bg-white/[0.06]">
+                                    <div className={`h-full ${barFill} transition-all duration-700`} style={{ width: `${Math.min(progress, 100)}%` }} />
                                 </div>
                                 <div className="p-5">
                                     <div className="flex items-start justify-between gap-4">
                                         <div className="space-y-2 min-w-0 flex-1">
                                             <div className="flex items-center gap-3">
-                                                <span className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${isCompleted ? "bg-teal/10 text-teal border border-teal/10" : isSeeding ? "bg-blue-500/10 text-blue-400 border border-blue-500/10" : isPaused ? "bg-warning/10 text-warning border border-warning/10" : "bg-accent/10 text-accent border border-accent/10"}`}>{t.status}</span>
-                                                <h3 className="text-sm font-bold text-white truncate">{t.name}</h3>
+                                                <span className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${isCompleted ? "bg-teal/10 text-teal border border-teal/20" : isSeeding ? "bg-teal/10 text-teal border border-teal/20" : isPaused ? "bg-warning/10 text-warning border border-warning/20" : "bg-accent/10 text-accent border border-accent/20"}`}>{t.status}</span>
+                                                <h3 className="text-sm font-bold text-text-1 truncate">{t.name}</h3>
                                             </div>
                                             <div className="flex flex-wrap gap-5 text-[11px] text-text-3">
                                                 {!isDone && <span>Peers <span className="text-text-2 font-mono font-bold">{t.numPeers}</span></span>}
@@ -395,43 +439,51 @@ export default function DownloadsPage() {
                                                 </div>
                                             )}
                                             <div className="flex gap-1.5">
+                                                {/* Stream in browser — for anything with downloadable data */}
+                                                {(isActive || isDone) && (
+                                                    <button onClick={() => setStreamTarget({ infoHash: t.infoHash, name: t.name })}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-accent text-black hover:bg-accent-strong transition-all"
+                                                        title="Stream in browser">
+                                                        <IconPlay /> Stream
+                                                    </button>
+                                                )}
                                                 {/* Files drawer button — only for active downloads */}
                                                 {isActive && (
                                                     <button onClick={() => openDrawer(t.infoHash)}
-                                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/[0.05] text-text-3 hover:text-white hover:bg-white/[0.11] border border-white/[0.08] transition-all"
+                                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-elevated text-text-3 hover:text-text-1 hover:bg-white/[0.11] border border-white/[0.06] transition-all"
                                                         title="View files">
                                                         <IconFiles />
                                                     </button>
                                                 )}
                                                 {isSeeding && (
                                                     <button onClick={() => stopSeeding(t.infoHash)}
-                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-teal/10 text-teal hover:bg-teal/20 border border-teal/10 transition-all">
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-teal/10 text-teal hover:bg-teal/20 border border-teal/20 transition-all">
                                                         <IconStop /> Stop
                                                     </button>
                                                 )}
                                                 {isCompleted && (
                                                     <button onClick={() => startSeeding(t.infoHash)}
-                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/10 transition-all">
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-teal/10 text-teal hover:bg-teal/20 border border-teal/20 transition-all">
                                                         <IconPlay /> Seed
                                                     </button>
                                                 )}
                                                 {!isDone && (
                                                     <button onClick={() => isPaused ? resumeTorrent(t.infoHash) : pauseTorrent(t.infoHash)}
-                                                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isPaused ? "bg-teal/10 text-teal hover:bg-teal/20 border border-teal/10" : "bg-warning/10 text-warning hover:bg-warning/20 border border-warning/10"}`}
+                                                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isPaused ? "bg-teal/10 text-teal hover:bg-teal/20 border border-teal/20" : "bg-warning/10 text-warning hover:bg-warning/20 border border-warning/20"}`}
                                                         title={isPaused ? "Resume" : "Pause"}>
                                                         {isPaused ? <IconPlay /> : <IconPause />}
                                                     </button>
                                                 )}
                                                 {confirmDelete === t.infoHash ? (
                                                     <div className="flex gap-1">
-                                                        <button onClick={() => { deleteWithFiles(t.infoHash); setConfirmDelete(null); }}
-                                                            className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/10 transition-all">Yes</button>
+                                                        <button onClick={() => { deleteWithFiles(t.infoHash); removeProgressByInfoHash(t.infoHash); setContinueList(listContinueWatching()); setConfirmDelete(null); }}
+                                                            className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-danger/15 text-danger hover:bg-danger/25 border border-danger/20 transition-all">Yes</button>
                                                         <button onClick={() => setConfirmDelete(null)}
-                                                            className="px-2 py-1.5 rounded-lg text-[10px] text-text-3 hover:text-white transition-all">No</button>
+                                                            className="px-2 py-1.5 rounded-lg text-[10px] text-text-3 hover:text-text-1 transition-all">No</button>
                                                     </div>
                                                 ) : (
                                                     <button onClick={() => setConfirmDelete(t.infoHash)}
-                                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/[0.04] text-text-3 hover:text-red-400 hover:bg-red-500/10 border border-white/[0.07] transition-all"
+                                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-elevated text-text-3 hover:text-danger hover:bg-danger/10 border border-white/[0.06] transition-all"
                                                         title="Delete"><IconTrash /></button>
                                                 )}
                                             </div>
@@ -442,8 +494,8 @@ export default function DownloadsPage() {
                         );
                     })
                 ) : (
-                    <div className="py-20 text-center rounded-3xl bg-gradient-to-br from-white/[0.05] to-white/[0.015] border border-dashed border-white/[0.1]">
-                        <div className="flex justify-center mb-3 opacity-20 text-text-3"><EmptyIcon /></div>
+                    <div className="py-20 text-center rounded-2xl bg-surface border border-dashed border-white/[0.1]">
+                        <div className="flex justify-center mb-3 opacity-25 text-text-3"><EmptyIcon /></div>
                         <p className="text-text-3 text-sm">{activeTab === "All" ? "No downloads yet" : `No ${activeTab.toLowerCase()} torrents`}</p>
                     </div>
                 )}
@@ -452,18 +504,18 @@ export default function DownloadsPage() {
             {/* File List Drawer */}
             {drawerHash && (
                 <>
-                    <div className="fixed inset-0 z-40 bg-black/70 animate-modal-overlay"
+                    <div className="fixed inset-0 z-40 bg-black/80 animate-modal-overlay"
                         onClick={e => { if (e.target === e.currentTarget) closeDrawer(); }} />
                     <div className="fixed inset-0 z-50 p-4 flex items-center justify-center overflow-hidden pointer-events-none">
                         <div
                             ref={drawerPanelRef}
-                            className="w-full max-w-2xl rounded-2xl bg-[#0d0d20] border border-white/[0.08] shadow-2xl shadow-black/80 flex flex-col max-h-[85vh] animate-modal-panel transform-gpu pointer-events-auto"
+                            className="w-full max-w-2xl rounded-2xl bg-surface border border-white/[0.06] shadow-cinema-lg flex flex-col max-h-[85vh] animate-modal-panel transform-gpu pointer-events-auto"
                             style={{ marginTop: `${drawerTop}px` }}
                         >
                             {/* Drawer header */}
                             <div className="flex items-start justify-between p-5 pb-4 border-b border-white/[0.06]">
                                 <div className="min-w-0">
-                                    <h2 className="text-base font-bold text-white">Files</h2>
+                                    <h2 className="text-base font-bold text-text-1">Files</h2>
                                     <p className="text-[11px] text-text-3 truncate mt-0.5">{drawerTorrent?.name || drawerHash}</p>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0 ml-3">
@@ -473,8 +525,8 @@ export default function DownloadsPage() {
                                         </span>
                                     )}
                                     <button onClick={closeDrawer}
-                                        className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:text-white hover:bg-white/[0.06] transition-all text-sm">
-                                        &#x2715;
+                                        className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-white/[0.06] transition-all">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
                                     </button>
                                 </div>
                             </div>
@@ -488,8 +540,8 @@ export default function DownloadsPage() {
                                             {parseFloat(drawerTorrent.progress).toFixed(1)}%
                                         </span>
                                     </div>
-                                    <div className="h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
-                                        <div className="h-full bg-gradient-to-r from-accent to-teal rounded-full transition-all duration-700"
+                                    <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                        <div className={`h-full rounded-full transition-all duration-700 ${drawerTorrent.status === "Downloading" ? "bg-accent" : "bg-teal"}`}
                                             style={{ width: `${Math.min(parseFloat(drawerTorrent.progress), 100)}%` }} />
                                     </div>
                                     {!canControlFiles && (
@@ -515,9 +567,9 @@ export default function DownloadsPage() {
                                         const isBusy = !!drawerActionByPath[f.path];
                                         const canToggle = canControlFiles && !isBusy && !isDone;
                                         return (
-                                            <div key={f.path} className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04] transition-colors duration-200">
+                                            <div key={f.path} className="px-4 py-3 rounded-xl bg-elevated border border-white/[0.06] transition-colors duration-200">
                                                 <div className="flex items-center justify-between gap-3 mb-2">
-                                                    <span className="text-xs text-white font-medium truncate flex-1">{f.name}</span>
+                                                    <span className="text-xs text-text-1 font-medium truncate flex-1">{f.name}</span>
                                                     <div className="grid grid-cols-[28px_56px_72px] items-center gap-2 shrink-0 text-[10px] font-mono text-text-3">
                                                         <button
                                                             onClick={() => toggleDrawerFile(f)}
@@ -534,8 +586,8 @@ export default function DownloadsPage() {
                                                         <span className="text-right">{formatSize(f.length)}</span>
                                                     </div>
                                                 </div>
-                                                <div className="h-1 bg-white/[0.05] rounded-full overflow-hidden">
-                                                    <div className={`h-full rounded-full ${isPaused ? "bg-warning" : isDone ? "bg-teal" : "bg-gradient-to-r from-accent to-teal"}`}
+                                                <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
+                                                    <div className={`h-full rounded-full ${isPaused ? "bg-warning" : isDone ? "bg-teal" : "bg-accent"}`}
                                                         style={{ width: `${pct}%` }} />
                                                 </div>
                                             </div>
@@ -546,6 +598,16 @@ export default function DownloadsPage() {
                         </div>
                     </div>
                 </>
+            )}
+
+            {streamTarget && (
+                <StreamPlayer
+                    infoHash={streamTarget.infoHash}
+                    name={streamTarget.name}
+                    initialFileIdx={streamTarget.fileIdx}
+                    initialTime={streamTarget.time}
+                    onClose={() => { setStreamTarget(null); setContinueList(listContinueWatching()); }}
+                />
             )}
         </div>
     );

@@ -104,15 +104,15 @@ function chipClass(tone: ChipTone = "neutral") {
         case "teal":
             return "border-teal/25 bg-teal/12 text-teal";
         case "violet":
-            return "border-[#8b7aff]/25 bg-[#8b7aff]/12 text-[#b8adff]";
+            return "border-white/[0.10] bg-white/[0.05] text-text-2";
         case "amber":
             return "border-warning/25 bg-warning/12 text-warning";
         case "rose":
-            return "border-[#ff6b9d]/25 bg-[#ff6b9d]/12 text-[#ff9abd]";
+            return "border-danger/25 bg-danger/12 text-danger";
         case "slate":
             return "border-white/[0.10] bg-white/[0.045] text-text-2";
         default:
-            return "border-white/[0.08] bg-black/20 text-text-2";
+            return "border-white/[0.08] bg-white/[0.03] text-text-3";
     }
 }
 
@@ -384,9 +384,9 @@ async function getAniListSeasonAnime(kind: "now" | "next"): Promise<AnimeItem[]>
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint: string }) {
     return (
-        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-4">
+        <div className="rounded-2xl border border-white/[0.06] bg-elevated p-4">
             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-text-3">{label}</div>
-            <div className="mt-1 text-2xl font-black text-white">{value}</div>
+            <div className="mt-1 text-2xl font-black text-text-1">{value}</div>
             <div className="mt-1 text-xs text-text-3">{hint}</div>
         </div>
     );
@@ -414,23 +414,28 @@ function PosterCard({
             href={url}
             target="_blank"
             rel="noreferrer"
-            className="group flex gap-4 rounded-[1.5rem] border border-white/[0.08] bg-gradient-to-br from-white/[0.055] via-white/[0.035] to-transparent p-4 transition-colors duration-200 hover:border-white/[0.14] hover:bg-white/[0.05]"
+            className="group flex gap-4 cine-card cine-card-hover p-4"
             style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
         >
-            <div className={`h-20 w-14 shrink-0 overflow-hidden rounded-xl border ${accent === "teal" ? "border-teal/25 bg-teal/10" : "border-accent/25 bg-accent/10"}`}>
+            <div className={`poster-ratio w-16 shrink-0 overflow-hidden rounded-xl border bg-base ${accent === "teal" ? "border-teal/20" : "border-accent/20"}`}>
                 {image ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={image} alt={title} className="h-full w-full object-cover" loading="lazy" decoding="async" fetchPriority="low" />
+                    <img src={image} alt={title} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" decoding="async" fetchPriority="low" />
                 ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs font-black text-text-3">V</div>
+                    <div className="flex h-full w-full items-center justify-center text-text-3">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6" aria-hidden="true">
+                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                            <path d="M3 9h18M9 3v18" />
+                        </svg>
+                    </div>
                 )}
             </div>
             <div className="min-w-0 flex-1">
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-3">{subtitle}</div>
-                <div className="mt-1 text-base font-bold text-white group-hover:text-white">{title}</div>
+                <div className="mt-1 text-base font-bold text-text-1">{title}</div>
                 <div className="mt-2 flex flex-wrap gap-2">
                     {meta.map(item => (
-                        <span key={item.label} className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${chipClass(item.tone)}`}>
+                        <span key={item.label} className={`cine-chip ${chipClass(item.tone)}`}>
                             {item.label}
                         </span>
                     ))}
@@ -459,11 +464,11 @@ function AccordionSection<T extends { key: string }>({
     badge: string;
 }) {
     return (
-        <section className="rounded-[2rem] border border-white/[0.08] bg-white/[0.04] p-6">
+        <section className="cine-card p-6">
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-accent">{badge}</div>
-                    <h2 className="mt-1 text-2xl font-black text-white">{title}</h2>
+                    <h2 className="cine-title mt-1 text-2xl">{title}</h2>
                     <p className="mt-1 text-sm text-text-3">{subtitle}</p>
                 </div>
             </div>
@@ -474,7 +479,7 @@ function AccordionSection<T extends { key: string }>({
                         <details
                             key={bucket.name}
                             open={defaultOpen && bucket.items.length > 0}
-                            className="group rounded-2xl border border-white/[0.08] bg-black/20 p-4"
+                            className="group rounded-2xl border border-white/[0.06] bg-elevated p-4"
                             style={{ contentVisibility: "auto", containIntrinsicSize: "300px", contain: "layout paint style" }}
                         >
                             <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
@@ -482,8 +487,10 @@ function AccordionSection<T extends { key: string }>({
                                     <div className="text-sm font-black uppercase tracking-[0.18em] text-text-2">{bucket.name}</div>
                                     <div className="mt-1 text-xs text-text-3">{bucket.items.length} title{bucket.items.length === 1 ? "" : "s"}</div>
                                 </div>
-                                <div className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-text-3 transition group-open:bg-accent/10 group-open:text-accent">
-                                    Toggle
+                                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.08] bg-surface text-text-3 transition group-open:border-accent/30 group-open:text-accent">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 transition-transform duration-200 group-open:rotate-180" aria-hidden="true">
+                                        <path d="m6 9 6 6 6-6" />
+                                    </svg>
                                 </div>
                             </summary>
 
@@ -493,7 +500,7 @@ function AccordionSection<T extends { key: string }>({
                         </details>
                     ))
                 ) : (
-                    <div className="rounded-2xl border border-white/[0.06] bg-black/20 p-6 text-sm text-text-3">{emptyText}</div>
+                    <div className="rounded-2xl border border-white/[0.06] bg-surface p-6 text-sm text-text-3">{emptyText}</div>
                 )}
             </div>
         </section>
@@ -543,11 +550,15 @@ export default async function ReleaseRadarPage() {
         <div className="min-h-screen bg-base text-text-1">
             <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
                 <Link href="/" className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-accent via-[#8b7aff] to-teal text-white font-black shadow-[0_18px_36px_-20px_rgba(57,160,255,0.95)] ring-1 ring-white/10">
-                        V
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent/12 text-accent ring-1 ring-accent/25">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9" />
+                            <circle cx="12" cy="12" r="4" />
+                            <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
+                        </svg>
                     </div>
                     <div>
-                        <div className="text-lg font-black text-white">Vortex</div>
+                        <div className="text-lg font-black text-text-1">Vortex</div>
                         <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-text-3">Release Radar</div>
                     </div>
                 </Link>
@@ -561,19 +572,19 @@ export default async function ReleaseRadarPage() {
             </header>
 
             <main className="relative z-10 mx-auto max-w-7xl px-6 pb-16">
-                <section className="overflow-hidden rounded-[2.4rem] border border-white/[0.08] bg-gradient-to-br from-white/[0.07] via-white/[0.035] to-white/[0.015] p-8 md:p-10">
+                <section className="overflow-hidden cine-card shadow-cinema p-8 md:p-10">
                     <div>
                         <div className="flex flex-wrap items-center gap-3">
-                            <div className="inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/10 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-accent">
+                            <div className="cine-chip border-accent/25 bg-accent/12 text-accent">
                                 Weekly release tracker
                             </div>
-                            <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-black/20 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-text-2">
+                            <div className="cine-chip border-white/[0.08] bg-surface text-text-2">
                                 Updated {nowLabel}
                             </div>
                         </div>
 
                         <div className="mt-6 max-w-4xl">
-                            <h1 className="text-4xl font-black tracking-tight text-white md:text-6xl">Anime coming soon and what is airing now.</h1>
+                            <h1 className="cine-title text-4xl tracking-tight md:text-6xl">Anime coming soon and what is airing now.</h1>
                             <p className="mt-4 max-w-3xl text-base leading-relaxed text-text-2 md:text-lg">
                                 Merged from Jikan and AniList, then shaped into a premium radar with clean genre buckets, consistent episode labels, and a strong visual hierarchy.
                             </p>
@@ -587,24 +598,24 @@ export default async function ReleaseRadarPage() {
                         </div>
 
                         <div className="mt-5 grid gap-3 md:grid-cols-2">
-                            <div className="rounded-2xl border border-white/[0.08] bg-black/20 px-4 py-3 text-sm text-text-2">
-                                <span className="font-bold text-white">Airing now</span> cards stay consistent: episode number when known, otherwise a weekly schedule label.
+                            <div className="rounded-2xl border border-white/[0.06] bg-elevated px-4 py-3 text-sm text-text-2">
+                                <span className="font-bold text-text-1">Airing now</span> cards stay consistent: episode number when known, otherwise a weekly schedule label.
                             </div>
-                            <div className="rounded-2xl border border-white/[0.08] bg-black/20 px-4 py-3 text-sm text-text-2">
-                                <span className="font-bold text-white">Started recently</span> highlights episode 1 and 2 so new shows stand out immediately.
+                            <div className="rounded-2xl border border-white/[0.06] bg-elevated px-4 py-3 text-sm text-text-2">
+                                <span className="font-bold text-text-1">Started recently</span> highlights episode 1 and 2 so new shows stand out immediately.
                             </div>
                         </div>
                     </div>
                 </section>
 
-                <section className="mt-8 rounded-[2rem] border border-white/[0.08] bg-white/[0.04] p-6">
+                <section className="mt-8 cine-card p-6">
                     <div className="flex flex-wrap gap-2">
                         {ANIME_BUCKETS.map(bucket => {
                             const count = animeAll.filter(item => bucketForGenres(item.genres) === bucket).length;
                             return (
                                 <span key={bucket} className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-bold uppercase tracking-[0.18em] transition-colors hover:border-white/[0.14] ${chipClass(genreTone(bucket))}`}>
                                     {bucket}
-                                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-text-3">{count}</span>
+                                    <span className="rounded-full bg-black/30 px-2 py-0.5 text-[10px] text-text-3">{count}</span>
                                 </span>
                             );
                         })}

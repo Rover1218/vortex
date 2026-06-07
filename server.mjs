@@ -22,7 +22,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import zlib from 'zlib';
-import { execSync, spawn } from 'child_process';
+import { execSync, spawn, spawnSync } from 'child_process';
 // admin import removed for security (proxy approach)
 import WebTorrentImport from 'webtorrent';
 import pt from 'parse-torrent';
@@ -31,12 +31,75 @@ const parseTorrent = pt.default || pt;
 
 const WebTorrentModule = WebTorrentImport.default || WebTorrentImport;
 
-const VERSION = "0.1.6";
+const VERSION = "0.1.7";
 // For testing locally, it will try localhost:3000 if the Vercel site is not deployed with the proxy yet.
 let PROXY_URL = 'https://vortex-movies.vercel.app/api/sync';
 
 // Security: No longer embedding master keys. Engine uses user's Auth token to talk to Vercel proxy.
 const __EMBEDDED_FIREBASE_CREDS__ = null;
+
+// ─── Local API access control ───────────────────────────────────────────────
+// The engine HTTP API is bound to loopback and only accepts requests from the
+// known dashboard origins. Random websites in the user's browser cannot read
+// responses or issue preflighted requests (delete/post) from disallowed origins.
+const ALLOWED_ORIGINS = (process.env.VORTEX_ALLOWED_ORIGINS
+    ? process.env.VORTEX_ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
+    : ['https://vortex-movies.vercel.app', 'http://localhost:3000', 'http://127.0.0.1:3000']);
+
+function isAllowedOrigin(origin) {
+    // No Origin header → non-browser / same-origin / file:// (Electron) caller.
+    // Since we bind to loopback only, such callers are local processes; allow them.
+    return !origin || ALLOWED_ORIGINS.includes(origin);
+}
+
+const corsOptions = {
+    // Non-throwing: disallowed origins simply receive no CORS headers (so the
+    // browser blocks them from reading the response) rather than a 500 error.
+    origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
+    credentials: true,
+};
+
+// Firebase project this engine accepts tokens for. Used to reject forged/foreign
+// tokens. Full cryptographic signature verification still happens at the proxy;
+// this is a structural + claims gate so the local engine can't be driven by a
+// trivially-forged "Bearer x".
+const EXPECTED_PROJECT_ID = process.env.VORTEX_FIREBASE_PROJECT_ID || 'torrent-6cc35';
+
+// Atomic JSON write: write to a temp file then rename over the target. Rename is
+// atomic on the same volume, so a concurrent reader never sees a half-written or
+// truncated file even if two writes race or the process dies mid-write. Without
+// this, a torn write to torrents.json makes the whole list unparseable and the
+// engine silently drops every saved torrent on next load.
+function writeJsonAtomic(file, value) {
+    const json = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    const tmp = `${file}.${process.pid}.tmp`;
+    try {
+        fs.writeFileSync(tmp, json);
+        fs.renameSync(tmp, file);
+    } catch {
+        // Fallback to a direct write if the atomic rename is transiently blocked
+        // (e.g. an AV/indexer lock on Windows). Still better than losing the data.
+        try { fs.writeFileSync(file, json); } catch { /* ignore */ }
+        try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch { /* ignore */ }
+    }
+}
+
+function validateFirebaseToken(token) {
+    if (!token || typeof token !== 'string') return null;
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    try {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+        if (payload.aud !== EXPECTED_PROJECT_ID) return null;
+        if (payload.iss !== `https://securetoken.google.com/${EXPECTED_PROJECT_ID}`) return null;
+        if (!payload.sub || typeof payload.sub !== 'string') return null;
+        const now = Math.floor(Date.now() / 1000);
+        if (typeof payload.exp !== 'number' || payload.exp < now) return null;
+        return payload;
+    } catch {
+        return null;
+    }
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -45,7 +108,7 @@ let io = null;
 // Defer Socket.IO initialization for pkg compatibility
 function initializeSocketIO() {
     if (!io) {
-        io = new Server(server, { cors: { origin: "*" } });
+        io = new Server(server, { cors: { origin: ALLOWED_ORIGINS, credentials: true } });
     }
     return io;
 }
@@ -64,7 +127,7 @@ async function startServer() {
     // Initialize Socket.IO (deferred for pkg compatibility)
     initializeSocketIO();
 
-    app.use(cors());
+    app.use(cors(corsOptions));
     app.use(express.json());
 
     // ─── Firebase Admin & Cloud Sync ───
@@ -247,8 +310,11 @@ async function startServer() {
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
             const socketCount = io ? io.engine.clientsCount : 0;
-            if (socketCount === 0) {
-                console.log('\n[System] No connections for 10 minutes. Shutting down Vortex... 👋');
+            // Keep the engine alive while anything is still downloading — closing the
+            // dashboard tab must never kill in-progress downloads.
+            const activeDownloads = (client?.torrents || []).filter(t => t && !t.paused && (t.progress || 0) < 1).length;
+            if (socketCount === 0 && activeDownloads === 0) {
+                console.log('\n[System] Idle for 10 minutes (no connections, no active downloads). Shutting down Vortex... 👋');
                 process.exit(0);
             } else { resetIdleTimer(); }
         }, 600000); // 10 minutes
@@ -261,12 +327,15 @@ async function startServer() {
         if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
         const token = authHeader.split('Bearer ')[1];
 
-        // In this approach, we trust the frontend token and use it to talk to the Proxy.
-        // The Proxy will do the actual Firebase token verification.
+        // Structural + claims validation rejects forged/expired/foreign tokens.
+        // The Proxy still performs full Firebase signature verification before
+        // any cloud write; this gate protects the local engine API itself.
+        if (!validateFirebaseToken(token)) return res.status(401).json({ error: 'Invalid or expired token' });
+
         const tokenChanged = activeUserToken !== token;
         activeUserToken = token;
-        fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token }));
         if (tokenChanged) {
+            fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token }));
             lastSyncErrorStatus = null;
             hydrateSettingsFromCloud('http-auth').catch(() => { });
             setTimeout(() => syncAllStateToCloud('http-auth'), 250);
@@ -278,12 +347,13 @@ async function startServer() {
     io.use(async (socket, next) => {
         const token = socket.handshake.auth?.token;
         if (!token) return next(new Error('Unauthorized'));
+        if (!validateFirebaseToken(token)) return next(new Error('Invalid or expired token'));
         const tokenChanged = activeUserToken !== token;
         activeUserToken = token;
         lastSyncErrorStatus = null; // Reset error state on new connection
-        fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token }));
         // Token just became available for this socket; hydrate cloud settings into engine memory.
         if (tokenChanged) {
+            fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token }));
             hydrateSettingsFromCloud('socket-auth').catch(() => { });
             setTimeout(() => syncAllStateToCloud('socket-auth'), 250);
         }
@@ -292,13 +362,13 @@ async function startServer() {
 
     io.on('connection', (socket) => {
         socket.on('update-token', (data) => {
-            if (data?.token) {
+            if (data?.token && validateFirebaseToken(data.token)) {
                 if (process.env.VORTEX_DEBUG) console.log('[Engine] Token updated via socket');
                 const tokenChanged = activeUserToken !== data.token;
                 activeUserToken = data.token;
                 lastSyncErrorStatus = null; // Reset error state
-                fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token: data.token }));
                 if (tokenChanged) {
+                    fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token: data.token }));
                     hydrateSettingsFromCloud('socket-update-token').catch(() => { });
                     setTimeout(() => syncAllStateToCloud('socket-update-token'), 250);
                 }
@@ -390,7 +460,7 @@ async function startServer() {
             const changed = JSON.stringify(nextSettings) !== JSON.stringify(settings);
             if (changed) {
                 settings = nextSettings;
-                fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+                writeJsonAtomic(SETTINGS_FILE, settings);
                 io.emit('settings-updated', settings);
                 applyBandwidthLimits();
             }
@@ -433,7 +503,7 @@ async function startServer() {
     }
     function saveSettings() {
         settings = normalizeSettings(settings);
-        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+        writeJsonAtomic(SETTINGS_FILE, settings);
         if (!fs.existsSync(settings.downloadPath)) fs.mkdirSync(settings.downloadPath, { recursive: true });
         queueSyncToCloud('settings', settings);
     }
@@ -448,6 +518,21 @@ async function startServer() {
     const addedAtMap = new Map();   // tracks when each torrent was first added
     const namesMap = new Map();     // persistent name store — survives state transitions
     const pausedFilesByHash = new Map(); // tracks per-file paused state while torrent is active
+    const ephemeralHashes = new Set();  // Quick-Watch torrents: streamed from a temp store, fetch-on-demand, never saved, auto-removed on stop
+    // Quick-Watch temp store lives UNDER the user's chosen download path (same drive),
+    // as a hidden ".stream-cache" folder — dot-prefixed so the Library/search/browse
+    // scans skip it. Wiped once per session (clears crash leftovers); per-torrent
+    // files are deleted on stop.
+    let streamCacheCleaned = false;
+    function streamTmpDir() {
+        const dir = path.join(settings.downloadPath || DATA_DIR, '.stream-cache');
+        if (!streamCacheCleaned) {
+            try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+            streamCacheCleaned = true;
+        }
+        try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+        return dir;
+    }
     let lifetimeTotals = { downloaded: 0, seeded: 0 };
     let lastLifetimeTickAt = Date.now();
 
@@ -470,7 +555,7 @@ async function startServer() {
     function saveLifetimeTotals() {
         lifetimeTotals.downloaded = toFiniteNonNegative(lifetimeTotals.downloaded);
         lifetimeTotals.seeded = toFiniteNonNegative(lifetimeTotals.seeded);
-        fs.writeFileSync(STATS_FILE, JSON.stringify(lifetimeTotals, null, 2));
+        writeJsonAtomic(STATS_FILE, lifetimeTotals);
         queueSyncToCloud('stats', lifetimeTotals);
     }
 
@@ -622,13 +707,14 @@ async function startServer() {
         const merged = dedupeSavedTorrents([...localTorrents, ...cloudTorrents]);
 
         // Keep local file resilient even when cloud is stale or missing recent updates.
-        fs.writeFileSync(TORRENTS_FILE, JSON.stringify(merged, null, 2));
+        writeJsonAtomic(TORRENTS_FILE, merged);
         return merged;
     }
 
     function saveTorrentList() {
         const list = [];
         for (const t of client.torrents) {
+            if (ephemeralHashes.has(t.infoHash)) continue; // Quick-Watch streams are never persisted
             const name = t.name || namesMap.get(t.infoHash) || getNameFromMagnet(magnetsByHash.get(t.infoHash));
             if (name) namesMap.set(t.infoHash, name);
             const uploadedNow = resolveUploaded(t.downloaded || 0, t.uploaded, t.ratio);
@@ -666,7 +752,7 @@ async function startServer() {
                 addedAt: data.addedAt || Date.now()
             });
         }
-        fs.writeFileSync(TORRENTS_FILE, JSON.stringify(list, null, 2));
+        writeJsonAtomic(TORRENTS_FILE, list);
         queueSyncToCloud('torrents', list);
     }
 
@@ -901,6 +987,73 @@ async function startServer() {
         }).filter(Boolean);
     }
 
+    // ── Torrentio (Stremio addon, aggregates many sources) ───────────────────
+    // Torrentio is IMDB-id based, not keyword based, so we first resolve the
+    // query to an IMDB id via TMDB. We support movies; TV series need a specific
+    // season/episode that a plain name search can't provide, so TV is skipped.
+    async function resolveImdbId(query) {
+        // Primary: Stremio's Cinemeta — KEYLESS title→IMDB resolver in the same
+        // ecosystem as Torrentio (one fast request, no API key needed).
+        try {
+            const url = `https://v3-cinemeta.strem.io/catalog/movie/top/search=${encodeURIComponent(query)}.json`;
+            const { body } = await httpsGet(url, 7000);
+            const metas = JSON.parse(body)?.metas || [];
+            const hit = metas.find(m => typeof m?.id === 'string' && /^tt\d+$/.test(m.id));
+            if (hit) return { imdbId: hit.id, type: 'movie' };
+        } catch { /* fall through to TMDB */ }
+
+        // Fallback: TMDB (only if a key is configured).
+        if (settings.tmdbApiKey) {
+            try {
+                const searchUrl = `https://api.themoviedb.org/3/search/multi?api_key=${settings.tmdbApiKey}&query=${encodeURIComponent(query)}&include_adult=false`;
+                const { body } = await httpsGet(searchUrl, 6000);
+                const list = JSON.parse(body)?.results || [];
+                const hit = list.find(r => (r.media_type === 'movie' || r.media_type === 'tv') && r.id);
+                if (hit) {
+                    const ext = await httpsGet(`https://api.themoviedb.org/3/${hit.media_type}/${hit.id}/external_ids?api_key=${settings.tmdbApiKey}`, 6000);
+                    const imdbId = JSON.parse(ext.body)?.imdb_id;
+                    if (imdbId && /^tt\d+$/.test(imdbId)) return { imdbId, type: hit.media_type };
+                }
+            } catch { /* ignore */ }
+        }
+        return null;
+    }
+
+    async function searchTorrentio(query) {
+        const resolved = await resolveImdbId(query);
+        if (!resolved || resolved.type !== 'movie') return [];
+        let data;
+        try {
+            const { body } = await httpsGet(`https://torrentio.strem.fun/stream/movie/${resolved.imdbId}.json`, 9000);
+            data = JSON.parse(body);
+        } catch { return []; }
+        const streams = Array.isArray(data?.streams) ? data.streams : [];
+        const seen = new Set();
+        const results = [];
+        for (const s of streams) {
+            const hash = (s.infoHash || '').toLowerCase();
+            if (!hash || seen.has(hash)) continue;
+            seen.add(hash);
+            const fullTitle = s.title || s.name || '';
+            const name = (fullTitle.split('\n')[0] || '').trim() || query;
+            // Torrentio encodes seeders/size in the title, e.g. "👤 123 💾 2.1 GB ⚙ provider".
+            const seeds = parseInt(fullTitle.match(/👤\s*(\d+)/)?.[1]) || 0;
+            const size = fullTitle.match(/💾\s*([\d.]+\s*[KMGT]B)/i)?.[1]?.trim() || '?';
+            results.push({
+                _provider: 'Torrentio',
+                _magnet: buildMagnet(s.infoHash, name),
+                title: name,
+                seeds,
+                peers: 0,
+                size,
+                time: '',
+                category: 'Movies',
+                uploader: 'Torrentio',
+            });
+        }
+        return results;
+    }
+
     // ── Provider registry ─────────────────────────────────────────────────────
     const CUSTOM_PROVIDERS = [
         {
@@ -922,6 +1075,13 @@ async function startServer() {
             name: 'Nyaa',
             search: (q, cat) => searchNyaa(q, cat),
             categories: ['All', 'Anime', 'TV Shows', 'Music', 'Applications'],
+        },
+        {
+            name: 'Torrentio',
+            // Movies only (IMDB-based aggregator). Skips other categories to avoid
+            // wasting the TMDB lookup on searches it can't serve.
+            search: (q, cat) => (['All', 'Movies'].includes(cat) ? searchTorrentio(q) : Promise.resolve([])),
+            categories: ['All', 'Movies'],
         },
     ];
 
@@ -1150,7 +1310,7 @@ async function startServer() {
         lastLifetimeTickAt = now;
         accumulateLifetimeFromSpeeds(client.downloadSpeed || 0, client.uploadSpeed || 0, elapsedMs);
 
-        const activeTorrents = client.torrents.map(t => ({
+        const activeTorrents = client.torrents.filter(t => !ephemeralHashes.has(t.infoHash)).map(t => ({
             uploaded: resolveUploaded(t.downloaded || 0, t.uploaded, t.ratio) || 0,
             infoHash: t.infoHash,
             name: t.name || namesMap.get(t.infoHash) || getNameFromMagnet(magnetsByHash.get(t.infoHash)) || 'Loading metadata...',
@@ -1195,7 +1355,10 @@ async function startServer() {
     //  API ROUTES
     // ═══════════════════════════════════
 
-    app.get('/api/desktop-status', (req, res) => {
+    // Read-only status for the Electron desktop panel, which loads from a
+    // file:// origin (serialized as "null"). Allow any origin here since the
+    // payload is non-sensitive status and the server is bound to loopback.
+    app.get('/api/desktop-status', cors({ origin: '*' }), (req, res) => {
         const torrents = Array.isArray(client?.torrents) ? client.torrents : [];
         const activeCount = torrents.filter(t => t?.progress > 0 && t?.progress < 1).length;
         const seedingCount = torrents.filter(t => t?.progress === 1).length;
@@ -1307,13 +1470,16 @@ async function startServer() {
     });
 
     // ─── Library Delete ───
-    app.delete('/api/library/delete', (req, res) => {
+    app.delete('/api/library/delete', verifyUser, (req, res) => {
         const targetPath = req.query.path;
         if (!targetPath) return res.status(400).json({ error: 'path required' });
-        // Safety: must be within the download path
-        const dlPath = settings.downloadPath;
+        // Safety: must be the download dir itself or strictly nested under it.
+        // A plain startsWith() check is unsafe — "F:\Downloads-evil" would pass a
+        // prefix test against "F:\Downloads"; requiring the path separator fixes it.
+        const base = path.resolve(settings.downloadPath);
         const resolved = path.resolve(targetPath);
-        if (!resolved.startsWith(path.resolve(dlPath))) {
+        const isContained = resolved === base || resolved.startsWith(base + path.sep);
+        if (!isContained) {
             return res.status(403).json({ error: 'Path outside download directory' });
         }
         try {
@@ -1444,7 +1610,10 @@ async function startServer() {
         const isMatch = (normalized) => {
             const wordStartMatch = (queryWord, text) => text.split(/\s+/).some(w => w.startsWith(queryWord) || queryWord.startsWith(w));
             const allWordsMatch = queryWords.every(w => normalized.includes(w));
-            const fuzzyMatch = normalized.includes(qn) || qn.includes(normalized);
+            // Guard the substring directions with a min length so tiny junk folder
+            // names like "NC" (creditless openings) don't match any query that merely
+            // contains those letters (e.g. "i-NC-eption").
+            const fuzzyMatch = (qn.length >= 3 && normalized.includes(qn)) || (normalized.length >= 4 && qn.includes(normalized));
             const partialWordMatches = queryWords.filter(w => normalized.includes(w) || wordStartMatch(w, normalized)).length;
             const partialMatch = queryWords.length >= 2 && partialWordMatches / queryWords.length >= 0.6;
             return allWordsMatch || fuzzyMatch || partialMatch;
@@ -1690,8 +1859,8 @@ async function startServer() {
             io.emit('search-progress', { searchId, providers: Object.values(providerStatus), totalResults: allResults.length, query: q });
 
             const startTime = Date.now();
-            // Scraping providers need more time than API providers
-            const providerTimeout = ['1337x', 'YTS'].includes(provider.name) ? 15000 : 10000;
+            // All active providers are API/RSS based — a flat 10s timeout is enough.
+            const providerTimeout = 10000;
             try {
                 let results = await Promise.race([
                     provider.search(q, cat),
@@ -2010,6 +2179,26 @@ async function startServer() {
         }
     }
 
+    // Open a single file in the OS default player (e.g. VLC for x265/HEVC that the
+    // browser can't decode).
+    function openFileOnSystem(filePath) {
+        if (!filePath || !fs.existsSync(filePath)) return false;
+        try {
+            if (process.platform === 'win32') {
+                // 'start' is a cmd builtin; the empty "" is the (required) window title.
+                const child = spawn('cmd', ['/c', 'start', '', path.normalize(filePath)], { detached: true, stdio: 'ignore', windowsHide: true });
+                child.unref();
+                return true;
+            }
+            const opener = process.platform === 'darwin' ? 'open' : 'xdg-open';
+            const child = spawn(opener, [filePath], { detached: true, stdio: 'ignore' });
+            child.unref();
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     app.post('/api/torrents/:infoHash/open-folder', verifyUser, (req, res) => {
         const hash = String(req.params.infoHash || '').trim();
         if (!hash) return res.status(400).json({ error: 'Invalid infoHash' });
@@ -2294,6 +2483,436 @@ async function startServer() {
             }
             return res.status(500).json({ error: err.message || 'Failed to start seeding' });
         }
+    });
+
+    // ─── Stream video for in-browser playback (HTTP Range) ───
+    // Works for active torrents (stream-while-downloading) AND already-downloaded
+    // items on disk (completed / not seeding). Supports ?fileIdx=N to pick a
+    // specific episode out of a multi-file folder.
+    const STREAMABLE_EXT = ['.mp4', '.m4v', '.webm', '.mkv', '.mov', '.avi', '.ts'];
+    const isVideoName = (name) => STREAMABLE_EXT.some(ext => name.toLowerCase().endsWith(ext));
+    const isBrowserFriendly = (name) => ['.mp4', '.m4v', '.webm'].includes((name.match(/\.[^.]+$/)?.[0] || '').toLowerCase());
+    function mimeForFile(name) {
+        const n = name.toLowerCase();
+        if (n.endsWith('.mp4') || n.endsWith('.m4v')) return 'video/mp4';
+        if (n.endsWith('.webm')) return 'video/webm';
+        if (n.endsWith('.mkv')) return 'video/x-matroska';
+        if (n.endsWith('.mov')) return 'video/quicktime';
+        if (n.endsWith('.avi')) return 'video/x-msvideo';
+        if (n.endsWith('.ts')) return 'video/mp2t';
+        return 'application/octet-stream';
+    }
+    // Natural episode order (so "Ep 2" sorts before "Ep 10").
+    const byEpisodeOrder = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+
+    function listVideoFilesOnDisk(rootPath) {
+        const out = [];
+        const walk = (p, depth) => {
+            if (depth > 4) return;
+            let stat; try { stat = fs.statSync(p); } catch { return; }
+            if (stat.isDirectory()) {
+                let entries = []; try { entries = fs.readdirSync(p); } catch { return; }
+                for (const e of entries) walk(path.join(p, e), depth + 1);
+            } else if (isVideoName(p)) {
+                out.push({ name: path.basename(p), absPath: p, length: stat.size });
+            }
+        };
+        walk(rootPath, 0);
+        out.sort(byEpisodeOrder);
+        return out;
+    }
+
+    function getTorrentName(hash) {
+        const active = client.torrents.find(t => (t.infoHash || '').toLowerCase() === hash);
+        if (active?.name) return active.name;
+        const rec = completedTorrents.get(hash) || pausedTorrents.get(hash);
+        return rec?.name || null;
+    }
+
+    // Ordered list of playable videos for an infoHash.
+    // source: 'torrent' (live) | 'disk' (on-disk fallback) | 'loading' | 'none'.
+    function getPlayableFiles(hash) {
+        const torrent = client.torrents.find(t => (t.infoHash || '').toLowerCase() === hash);
+        if (torrent) {
+            if (!torrent.files || torrent.files.length === 0) return { source: 'loading', files: [] };
+            const vids = torrent.files.filter(f => isVideoName(f.name)).slice().sort(byEpisodeOrder);
+            return { source: 'torrent', torrent, files: vids.map(f => ({ name: f.name, length: f.length || 0, file: f })) };
+        }
+        const name = getTorrentName(hash);
+        const target = name ? path.join(settings.downloadPath, name) : null;
+        if (target && fs.existsSync(target)) {
+            return { source: 'disk', files: listVideoFilesOnDisk(target) };
+        }
+        return { source: 'none', files: [] };
+    }
+
+    function pickDefaultIdx(files) {
+        let idx = 0, max = -1;
+        files.forEach((f, i) => { if ((f.length || 0) > max) { max = f.length || 0; idx = i; } });
+        return idx;
+    }
+
+    // ── Transcoding (ffmpeg) — lets x265/HEVC/10-bit play in-browser ──────────
+    let ffmpegPathCache;
+    async function resolveFfmpeg() {
+        if (ffmpegPathCache !== undefined) return ffmpegPathCache;
+        const candidates = [];
+        if (process.env.VORTEX_FFMPEG) candidates.push(process.env.VORTEX_FFMPEG);
+        // Bundled next to the engine exe (packaged builds).
+        candidates.push(path.join(RUNTIME_DIR, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'));
+        for (const c of candidates) {
+            try { if (c && fs.existsSync(c)) { ffmpegPathCache = c; return c; } } catch { /* ignore */ }
+        }
+        // ffmpeg-static (dev / unpackaged installs).
+        try {
+            const mod = await import('ffmpeg-static');
+            const p = mod?.default || mod;
+            if (p && typeof p === 'string' && fs.existsSync(p)) { ffmpegPathCache = p; return p; }
+        } catch { /* not installed */ }
+        // System ffmpeg on PATH.
+        ffmpegPathCache = 'ffmpeg';
+        return ffmpegPathCache;
+    }
+
+    let ffmpegAvailCache;
+    async function ffmpegAvailable() {
+        if (ffmpegAvailCache !== undefined) return ffmpegAvailCache;
+        try {
+            const p = await resolveFfmpeg();
+            const r = spawnSync(p, ['-version'], { windowsHide: true, timeout: 5000 });
+            ffmpegAvailCache = !r.error && r.status === 0;
+        } catch { ffmpegAvailCache = false; }
+        return ffmpegAvailCache;
+    }
+
+    const absPathForChoice = (p, chosen) => p.source === 'torrent'
+        ? path.join(p.torrent?.path || settings.downloadPath, chosen.file.path)
+        : chosen.absPath;
+
+    // Lightweight check + the full episode list, so the UI can warn on container
+    // support and show an episode picker for multi-file folders.
+    app.get('/api/stream/:infoHash/info', async (req, res) => {
+        const hash = (req.params.infoHash || '').toLowerCase();
+        const p = getPlayableFiles(hash);
+        if (p.source === 'loading') return res.json({ streamable: false, reason: 'loading' });
+        if (p.source === 'none') return res.json({ streamable: false, reason: 'not-active' });
+        if (!p.files.length) return res.json({ streamable: false, reason: 'no-video' });
+        const files = p.files.map((f, idx) => ({
+            idx,
+            name: f.name,
+            length: f.length || 0,
+            ext: (f.name.match(/\.[^.]+$/)?.[0] || '').toLowerCase(),
+            browserFriendly: isBrowserFriendly(f.name),
+        }));
+        const defaultIdx = pickDefaultIdx(files);
+        const d = files[defaultIdx];
+        const transcodeAvailable = await ffmpegAvailable();
+        res.json({
+            streamable: true,
+            source: p.source,
+            multi: files.length > 1,
+            files,
+            defaultIdx,
+            transcodeAvailable,
+            name: d.name, ext: d.ext, browserFriendly: d.browserFriendly, length: d.length,
+        });
+    });
+
+    // No verifyUser: a <video> element can't attach an Authorization header, and
+    // the server is loopback-bound, so it isn't a general file server.
+    app.get('/api/stream/:infoHash', (req, res) => {
+        const hash = (req.params.infoHash || '').toLowerCase();
+        const p = getPlayableFiles(hash);
+        if (!p.files.length) return res.status(404).json({ error: 'No playable video file' });
+
+        let idx = parseInt(req.query.fileIdx, 10);
+        if (isNaN(idx) || idx < 0 || idx >= p.files.length) idx = pickDefaultIdx(p.files);
+        const chosen = p.files[idx];
+        const total = chosen.length || 0;
+
+        let start = 0, end = total - 1, status = 200;
+        const range = req.headers.range;
+        if (range) {
+            const m = /bytes=(\d*)-(\d*)/.exec(range);
+            if (m) {
+                if (m[1]) start = parseInt(m[1], 10);
+                if (m[2]) end = parseInt(m[2], 10);
+                if (isNaN(start) || start < 0) start = 0;
+                if (isNaN(end) || end >= total) end = total - 1;
+                if (start > end) { start = 0; end = total - 1; }
+                status = 206;
+            }
+        }
+
+        res.status(status);
+        res.setHeader('Content-Type', mimeForFile(chosen.name));
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Length', (end - start) + 1);
+        if (status === 206) res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+
+        let stream;
+        try {
+            if (p.source === 'torrent') {
+                // Prioritize this file so playback can begin before completion — but
+                // NOT for Quick-Watch (ephemeral) streams, which should only fetch the
+                // pieces actually played, never the whole file.
+                if (!ephemeralHashes.has(hash)) { try { chosen.file.select(); } catch { /* ignore */ } }
+                stream = chosen.file.createReadStream({ start, end });
+            } else {
+                stream = fs.createReadStream(chosen.absPath, { start, end });
+            }
+        } catch (err) {
+            return res.status(500).json({ error: err.message || 'stream failed' });
+        }
+        stream.on('error', () => { try { res.destroy(); } catch { /* ignore */ } });
+        req.on('close', () => { try { stream.destroy(); } catch { /* ignore */ } });
+        stream.pipe(res);
+    });
+
+    // Open the chosen file in the OS default player (for x265/HEVC etc. the browser
+    // can't decode). Loopback-only and scoped to download files, like /stream.
+    app.post('/api/stream/:infoHash/open', (req, res) => {
+        const hash = (req.params.infoHash || '').toLowerCase();
+        const p = getPlayableFiles(hash);
+        if (!p.files.length) return res.status(404).json({ error: 'No playable file' });
+        let idx = parseInt(req.body?.fileIdx, 10);
+        if (isNaN(idx) || idx < 0 || idx >= p.files.length) idx = pickDefaultIdx(p.files);
+        const chosen = p.files[idx];
+        const absPath = p.source === 'torrent'
+            ? path.join(settings.downloadPath, chosen.file.path)
+            : chosen.absPath;
+        if (!openFileOnSystem(absPath)) return res.status(500).json({ error: 'Could not open file. It may still be downloading.' });
+        res.json({ success: true });
+    });
+
+    // Total duration (seconds) of a file — used by the transcode seek bar, since a
+    // live transcode stream has no seekable byte ranges the browser can read.
+    app.get('/api/stream/:infoHash/probe', async (req, res) => {
+        const hash = (req.params.infoHash || '').toLowerCase();
+        const p = getPlayableFiles(hash);
+        if (!p.files.length) return res.json({ duration: 0 });
+        let idx = parseInt(req.query.fileIdx, 10);
+        if (isNaN(idx) || idx < 0 || idx >= p.files.length) idx = pickDefaultIdx(p.files);
+        const absPath = absPathForChoice(p, p.files[idx]);
+        let duration = 0;
+        if (fs.existsSync(absPath) && await ffmpegAvailable()) {
+            try {
+                const ff = await resolveFfmpeg();
+                const r = spawnSync(ff, ['-i', absPath], { windowsHide: true, timeout: 8000, encoding: 'utf-8' });
+                const m = String(r.stderr || '').match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+                if (m) duration = (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]);
+            } catch { /* ignore */ }
+        }
+        res.json({ duration });
+    });
+
+    // On-the-fly transcode to browser-friendly H.264/AAC MP4 so x265/HEVC/10-bit
+    // plays in <video>. Output is a fragmented MP4 streamed over one response.
+    // CPU-heavy; used only when the user opts in for an unplayable file.
+    app.get('/api/transcode/:infoHash', async (req, res) => {
+        const hash = (req.params.infoHash || '').toLowerCase();
+        const p = getPlayableFiles(hash);
+        if (!p.files.length) return res.status(404).json({ error: 'No playable file' });
+        let idx = parseInt(req.query.fileIdx, 10);
+        if (isNaN(idx) || idx < 0 || idx >= p.files.length) idx = pickDefaultIdx(p.files);
+        const chosen = p.files[idx];
+        const absPath = absPathForChoice(p, chosen);
+        if (!absPath || !fs.existsSync(absPath)) return res.status(404).json({ error: 'File not on disk yet — let it download first.' });
+
+        const ffmpeg = await resolveFfmpeg();
+        const seek = Math.max(0, parseFloat(req.query.t) || 0);
+        // Optional explicit audio track (global stream index) for dual-audio files.
+        const audioParam = req.query.audio;
+        const audioMap = (audioParam != null && /^\d+$/.test(String(audioParam))) ? `0:${audioParam}` : '0:a:0?';
+        // vcopy=1 keeps the original H.264 video (just remuxes + swaps audio) — fast,
+        // no re-encode. Used when the source video already plays in browsers.
+        const vcopy = req.query.vcopy === '1';
+        const videoArgs = vcopy
+            ? ['-c:v', 'copy']
+            : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p'];
+        const args = [
+            ...(seek > 0 ? ['-ss', String(seek)] : []),
+            '-i', absPath,
+            '-map', '0:v:0', '-map', audioMap,
+            ...videoArgs,
+            '-c:a', 'aac', '-b:a', '160k', '-ac', '2',
+            '-movflags', 'frag_keyframe+empty_moov+default_base_moof+faststart',
+            '-f', 'mp4', 'pipe:1',
+        ];
+
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Cache-Control', 'no-store');
+
+        let proc;
+        try {
+            proc = spawn(ffmpeg, args, { windowsHide: true });
+        } catch {
+            return res.status(500).json({ error: 'ffmpeg not available' });
+        }
+        proc.stdout.pipe(res);
+        // ffmpeg writes progress/info to stderr; only surface it under debug.
+        proc.stderr.on('data', (d) => { if (process.env.VORTEX_DEBUG) process.stderr.write(d); });
+        proc.on('error', () => { try { if (!res.headersSent) res.status(500).end(); else res.destroy(); } catch { /* ignore */ } });
+        const kill = () => { try { proc.kill('SIGKILL'); } catch { /* ignore */ } };
+        req.on('close', kill);
+        res.on('close', kill);
+    });
+
+    const LANG_NAMES = { eng: 'English', en: 'English', jpn: 'Japanese', jp: 'Japanese', ja: 'Japanese', spa: 'Spanish', es: 'Spanish', fre: 'French', fra: 'French', fr: 'French', ger: 'German', deu: 'German', de: 'German', ita: 'Italian', it: 'Italian', por: 'Portuguese', pt: 'Portuguese', rus: 'Russian', ru: 'Russian', kor: 'Korean', ko: 'Korean', chi: 'Chinese', zho: 'Chinese', zh: 'Chinese', hin: 'Hindi', hi: 'Hindi', ara: 'Arabic', ar: 'Arabic' };
+    const langName = (c) => LANG_NAMES[c] || (c && c !== 'und' ? c.toUpperCase() : '');
+
+    // Tracks for a file: subtitle tracks (sidecar + embedded text), audio tracks
+    // (with language/title so dual-audio is selectable), and the video codec (so the
+    // UI knows whether audio-switch can fast-remux or needs a full transcode).
+    app.get('/api/stream/:infoHash/subs', async (req, res) => {
+        const hash = (req.params.infoHash || '').toLowerCase();
+        const p = getPlayableFiles(hash);
+        if (!p.files.length) return res.json({ tracks: [], audio: [], videoCodec: '' });
+        let idx = parseInt(req.query.fileIdx, 10);
+        if (isNaN(idx) || idx < 0 || idx >= p.files.length) idx = pickDefaultIdx(p.files);
+        const absPath = absPathForChoice(p, p.files[idx]);
+        const subs = [];
+        const audio = [];
+        let videoCodec = '';
+        try {
+            const dir = path.dirname(absPath);
+            const base = path.basename(absPath).replace(/\.[^.]+$/, '').toLowerCase();
+            for (const f of fs.readdirSync(dir)) {
+                const ext = (f.match(/\.[^.]+$/)?.[0] || '').toLowerCase();
+                if (!['.srt', '.vtt', '.ass', '.ssa'].includes(ext)) continue;
+                const fb = f.replace(/\.[^.]+$/, '').toLowerCase();
+                if (fb === base || fb.startsWith(base) || base.startsWith(fb)) {
+                    const lang = (f.match(/[._-]([a-z]{2,3})\.[^.]+$/i)?.[1] || '').toLowerCase();
+                    subs.push({ id: `file:${f}`, label: `Sidecar: ${f}`, lang });
+                }
+            }
+        } catch { /* ignore */ }
+        if (await ffmpegAvailable() && fs.existsSync(absPath)) {
+            try {
+                const ff = await resolveFfmpeg();
+                const r = spawnSync(ff, ['-i', absPath], { windowsHide: true, timeout: 8000, encoding: 'utf-8' });
+                const out = String(r.stderr || '');
+                // Split per-stream so a stream's "title :" metadata stays with it.
+                const blocks = out.split(/(?=\n\s*Stream #0:\d+)/);
+                let subN = 0, audN = 0;
+                for (const b of blocks) {
+                    const sm = b.match(/Stream #0:(\d+)(?:\((\w+)\))?: (Audio|Subtitle|Video): (\w+)/);
+                    if (!sm) continue;
+                    const sidx = Number(sm[1]);
+                    const lang = (sm[2] || '').toLowerCase();
+                    const kind = sm[3];
+                    const codec = sm[4].toLowerCase();
+                    const title = (b.match(/title\s*:\s*([^\n\r]+)/)?.[1] || '').trim();
+                    if (kind === 'Video') { if (!videoCodec) videoCodec = codec; continue; }
+                    if (kind === 'Audio') {
+                        audN++;
+                        const label = title || langName(lang) || `Audio ${audN}`;
+                        audio.push({ idx: sidx, lang, label, default: /\(default\)/.test(b) });
+                        continue;
+                    }
+                    // Subtitle (text-based only — image subs can't become WebVTT)
+                    if (!['subrip', 'ass', 'ssa', 'mov_text', 'webvtt', 'text'].includes(codec)) continue;
+                    subN++;
+                    const label = title || langName(lang) || `Subtitle ${subN}`;
+                    subs.push({ id: `embed:${sidx}`, label: lang && !title ? label : `${label}${lang ? ` (${lang})` : ''}`, lang });
+                }
+            } catch { /* ignore */ }
+        }
+        res.json({ tracks: subs, audio, videoCodec });
+    });
+
+    // Serve a subtitle track as WebVTT (converted via ffmpeg when needed).
+    // Permissive CORS so the cross-origin <track> can load it.
+    app.get('/api/stream/:infoHash/sub', cors({ origin: '*' }), async (req, res) => {
+        const hash = (req.params.infoHash || '').toLowerCase();
+        const p = getPlayableFiles(hash);
+        if (!p.files.length) return res.status(404).end();
+        let idx = parseInt(req.query.fileIdx, 10);
+        if (isNaN(idx) || idx < 0 || idx >= p.files.length) idx = pickDefaultIdx(p.files);
+        const absPath = absPathForChoice(p, p.files[idx]);
+        const track = String(req.query.track || '');
+        // When the player is transcoding from a seek point, shift the subtitle
+        // timestamps by the same offset so cues stay in sync with the reset timeline.
+        const seek = Math.max(0, parseFloat(req.query.t) || 0);
+        const seekArgs = seek > 0 ? ['-ss', String(seek)] : [];
+        res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+
+        const pipeFfmpeg = async (inputArgs) => {
+            const ff = await resolveFfmpeg();
+            let proc;
+            try { proc = spawn(ff, [...inputArgs, '-f', 'webvtt', 'pipe:1'], { windowsHide: true }); }
+            catch { return res.status(500).end(); }
+            proc.stdout.pipe(res);
+            proc.stderr.on('data', () => { });
+            proc.on('error', () => { try { res.end(); } catch { /* ignore */ } });
+            const kill = () => { try { proc.kill('SIGKILL'); } catch { /* ignore */ } };
+            req.on('close', kill); res.on('close', kill);
+        };
+
+        if (track.startsWith('file:')) {
+            const subPath = path.join(path.dirname(absPath), track.slice(5));
+            if (!fs.existsSync(subPath)) return res.status(404).end();
+            // Raw .vtt with no seek can be streamed directly; otherwise run through
+            // ffmpeg so the -ss offset (and srt/ass→vtt conversion) is applied.
+            if (subPath.toLowerCase().endsWith('.vtt') && seek === 0) { fs.createReadStream(subPath).pipe(res); return; }
+            return pipeFfmpeg([...seekArgs, '-i', subPath]);
+        }
+        if (track.startsWith('embed:')) {
+            const streamIdx = parseInt(track.slice(6), 10);
+            if (isNaN(streamIdx)) return res.status(400).end();
+            return pipeFfmpeg([...seekArgs, '-i', absPath, '-map', `0:${streamIdx}`]);
+        }
+        return res.status(400).end();
+    });
+
+    // ─── Quick Watch (ephemeral stream) ───
+    // Adds a torrent to a temp store for watch-without-download: fetch only what's
+    // played, never saved to the library/Downloads, and removed (files deleted) on
+    // stop. No verifyUser — loopback only, like the other stream endpoints.
+    app.post('/api/stream-add', (req, res) => {
+        const { magnet } = req.body || {};
+        if (!magnet) return res.status(400).json({ error: 'Magnet required' });
+        const hashMatch = String(magnet).match(/btih:([a-fA-F0-9]{40})/i);
+        const hash = hashMatch ? hashMatch[1].toLowerCase() : null;
+
+        // Reuse if already active (ephemeral or a normal download).
+        const existing = hash ? client.get(hash) : null;
+        if (existing) {
+            return res.json({ infoHash: existing.infoHash, ephemeral: ephemeralHashes.has(existing.infoHash) });
+        }
+
+        try {
+            const torrent = client.add(magnet, getTorrentAddOptions(magnet, streamTmpDir()));
+            const infoHash = torrent.infoHash || hash;
+            if (infoHash) {
+                ephemeralHashes.add(infoHash);
+                magnetsByHash.set(infoHash, magnet);
+            }
+            // Once metadata is in, deselect everything so nothing downloads in the
+            // background — only the pieces the player reads get fetched.
+            torrent.on('metadata', () => {
+                try { torrent.deselect(0, torrent.pieces.length - 1, 0); } catch { /* ignore */ }
+                try { (torrent.files || []).forEach(f => f.deselect()); } catch { /* ignore */ }
+            });
+            torrent.on('error', (e) => { if (process.env.VORTEX_DEBUG) console.error('[QuickWatch] error:', e?.message); });
+            console.log('▶ Quick-Watch (ephemeral):', infoHash);
+            res.json({ infoHash, ephemeral: true });
+        } catch (err) {
+            if (hash) { const ex = client.get(hash); if (ex) return res.json({ infoHash: ex.infoHash }); }
+            res.status(500).json({ error: err.message || 'Failed to start stream' });
+        }
+    });
+
+    app.post('/api/stream-stop/:infoHash', (req, res) => {
+        const hash = (req.params.infoHash || '').toLowerCase();
+        if (!ephemeralHashes.has(hash)) return res.json({ ok: true, note: 'not ephemeral' });
+        ephemeralHashes.delete(hash);
+        try {
+            client.remove(hash, { destroyStore: true }, () => { });
+            console.log('🗑 Quick-Watch stopped & purged:', hash);
+        } catch { /* ignore */ }
+        res.json({ ok: true });
     });
 
     // ─── Torrent File List ───
@@ -2980,9 +3599,21 @@ async function startServer() {
     });
 
     // ─── Start ───
-    const PORT = 3001;
-    server.listen(PORT, () => {
-        console.log(`\n⚡ Vortex Backend on http://localhost:${PORT}`);
+    const PORT = Number(process.env.VORTEX_ENGINE_PORT) || 3001;
+    server.on('error', (err) => {
+        if (err && err.code === 'EADDRINUSE') {
+            console.error(`\n✖ Port ${PORT} is already in use — another Vortex engine is likely still running.`);
+            console.error('  Close the existing instance (or wait for it to exit) and relaunch.');
+            // Exit cleanly so the desktop shell's restart logic can decide what to do
+            // instead of crashing on an unhandled 'error' event.
+            process.exit(1);
+        }
+        console.error('Engine server error:', err);
+        process.exit(1);
+    });
+    // Bind to loopback only — the API must never be reachable from the LAN.
+    server.listen(PORT, '127.0.0.1', () => {
+        console.log(`\n⚡ Vortex Backend on http://127.0.0.1:${PORT}`);
         console.log(`📂 Downloads → ${settings.downloadPath}`);
         console.log(`🔍 Providers: ${enabledProviders.join(', ')}`);
         console.log(`🌐 Swarm Tuning: maxConns=${ENGINE_MAX_CONNS} uploadSlots=${ENGINE_TORRENT_UPLOAD_SLOTS} maxWebConns=${ENGINE_TORRENT_MAX_WEB_CONNS}`);

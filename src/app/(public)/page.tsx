@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+const MARQUEE = ["Movies", "Anime", "TV Series", "4K · HDR", "x265 / HEVC", "Documentaries", "K-Drama", "Subtitles", "Stream while downloading", "Release Radar"];
+
 export default function LandingPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -14,320 +16,240 @@ export default function LandingPage() {
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => { if (!loading && user) router.push("/search"); }, [user, loading, router]);
 
-  const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   if (loading || !mounted) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-base">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-teal flex items-center justify-center text-white text-lg font-black animate-pulse">V</div>
+        <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center text-black text-lg font-black animate-pulse">V</div>
       </div>
     );
   }
   if (user) return null;
 
   return (
-    <div className="min-h-screen bg-base text-text-1 overflow-x-hidden">
-      {/* Static ambient glow — no animation, no blur, just radial gradients */}
-      <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 0 }}>
-        <div className="absolute top-0 left-0 w-full h-full" style={{
-          background: "radial-gradient(ellipse 60% 50% at 20% 20%, rgba(124,106,255,0.07) 0%, transparent 70%), radial-gradient(ellipse 50% 40% at 80% 80%, rgba(0,232,176,0.05) 0%, transparent 70%), radial-gradient(ellipse 30% 30% at 70% 30%, rgba(255,107,157,0.03) 0%, transparent 70%)"
-        }} />
+    <div className="min-h-screen bg-base text-text-1 overflow-x-hidden relative">
+      {/* Animated cinematic background */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+        <div className="absolute -top-1/3 left-1/2 -translate-x-1/2 w-[120vw] h-[80vh] rounded-full blur-[120px] animate-aurora" style={{ background: "radial-gradient(circle, rgba(245,166,35,0.16), transparent 60%)" }} />
+        <div className="absolute top-1/3 -right-[10vw] w-[50vw] h-[50vw] rounded-full blur-[120px] animate-aurora" style={{ background: "radial-gradient(circle, rgba(45,212,167,0.08), transparent 60%)", animationDelay: "-6s" }} />
+        <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px)", backgroundSize: "48px 48px", maskImage: "radial-gradient(ellipse 90% 60% at 50% 20%,#000,transparent 75%)", WebkitMaskImage: "radial-gradient(ellipse 90% 60% at 50% 20%,#000,transparent 75%)" }} />
       </div>
 
       {/* Nav */}
-      <nav className="relative z-10 flex items-center justify-between px-6 md:px-12 py-5 max-w-7xl mx-auto animate-fade-in">
+      <nav className="relative z-20 flex items-center justify-between px-6 md:px-12 py-5 max-w-7xl mx-auto">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-teal flex items-center justify-center text-white text-sm font-black shadow-lg shadow-accent/25 ring-1 ring-white/10">V</div>
-          <span className="text-2xl font-black tracking-tight text-white">Vortex</span>
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent-strong flex items-center justify-center text-black text-sm font-black shadow-accent-glow">V</div>
+          <span className="text-2xl font-black tracking-tight">Vortex</span>
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => scrollTo("features")} className="hidden md:inline-block px-4 py-2 text-sm font-medium text-text-2 hover:text-white transition-colors">Features</button>
-          <Link href="/release-radar" className="hidden md:inline-block px-4 py-2 text-sm font-medium text-text-2 hover:text-white transition-colors">Release Radar</Link>
-          <button onClick={() => scrollTo("how-it-works")} className="hidden md:inline-block px-4 py-2 text-sm font-medium text-text-2 hover:text-white transition-colors">How it works</button>
-          <button onClick={() => router.push("/login")}
-            className="px-6 py-2.5 text-sm font-bold rounded-xl bg-gradient-to-r from-accent to-[#8b7aff] text-white shadow-lg shadow-accent/20 hover:shadow-accent/40 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]">
-            Sign In
-          </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => scrollTo("features")} className="hidden md:inline-block px-4 py-2 text-sm font-medium text-text-2 hover:text-text-1 transition-colors">Features</button>
+          <Link href="/release-radar" className="hidden md:inline-block px-4 py-2 text-sm font-medium text-text-2 hover:text-text-1 transition-colors">Release Radar</Link>
+          <button onClick={() => scrollTo("how-it-works")} className="hidden md:inline-block px-4 py-2 text-sm font-medium text-text-2 hover:text-text-1 transition-colors">How it works</button>
+          <button onClick={() => router.push("/login")} className="btn-primary px-6">Sign In</button>
         </div>
       </nav>
 
       {/* Hero */}
-      <section className="relative z-10 flex flex-col items-center text-center px-6 pt-20 pb-12 max-w-5xl mx-auto animate-fade-up">
-        <div className="inline-flex items-center gap-2.5 px-5 py-2 mb-10 rounded-full bg-accent/[0.08] border border-accent/20">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-teal" />
-          </span>
-          <span className="text-accent text-xs font-bold uppercase tracking-[0.15em]">Private Torrent Management</span>
-        </div>
+      <section className="relative z-10 max-w-7xl mx-auto px-6 md:px-12 pt-12 md:pt-20 pb-12 grid lg:grid-cols-2 gap-12 items-center">
+        <div className="animate-fade-up">
+          <div className="cine-chip px-4 py-2 mb-7 !text-accent border-accent/25 bg-accent/[0.08]">
+            <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-teal" /></span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]">Private streaming + torrent manager</span>
+          </div>
 
-        <h1 className="text-5xl sm:text-6xl md:text-[5.5rem] font-black tracking-[-0.03em] leading-[1.02] mb-7">
-          Your torrents,<br />
-          <span className="bg-gradient-to-r from-accent via-[#9b8aff] to-teal bg-clip-text text-transparent">supercharged</span>
-        </h1>
+          <h1 className="text-5xl sm:text-6xl md:text-7xl font-black tracking-[-0.035em] leading-[0.98]">
+            Your torrents,<br />
+            now a <span className="text-gradient-amber">streaming<br className="hidden sm:block" /> service.</span>
+          </h1>
 
-        <p className="text-base md:text-lg text-text-2 max-w-xl mb-12 leading-relaxed">
-          Search across multiple providers, download at full speed, and manage your entire media library — all from one premium interface.
-        </p>
+          <p className="text-base md:text-lg text-text-2 max-w-xl mt-7 leading-relaxed">
+            Search 5 sources, download at full speed, and <span className="text-text-1 font-semibold">stream while it downloads</span> — even 4K &amp; x265, transcoded to play right in your browser. Subtitles, resume, and a private media library.
+          </p>
 
-        <div className="flex flex-col sm:flex-row items-center gap-4 mb-6">
-          <button onClick={() => router.push("/login")}
-            className="px-10 py-4 text-base font-bold rounded-2xl bg-gradient-to-r from-accent to-[#8b7aff] text-white shadow-2xl shadow-accent/30 hover:shadow-accent/50 transition-all duration-300 hover:scale-[1.03] active:scale-[0.98]">
-            <span className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3 mt-9">
+            <button onClick={() => router.push("/login")} className="btn-primary px-9 py-4 text-base shadow-accent-glow">
               Get Started Free
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10m0 0L9 4m4 4L9 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+            <button onClick={() => scrollTo("features")} className="px-6 py-4 text-base font-semibold text-text-2 hover:text-text-1 transition-colors">Explore features</button>
+          </div>
+          <p className="text-xs text-text-3 mt-5">No credit card · Free forever · 2-click setup</p>
+        </div>
+
+        {/* Floating poster cluster */}
+        <div className="relative h-[480px] hidden lg:block animate-fade-up [animation-delay:200ms] [animation-fill-mode:both]">
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] h-[480px] rounded-full blur-[100px]" style={{ background: "radial-gradient(circle, rgba(245,166,35,0.22), rgba(45,212,167,0.06) 45%, transparent 70%)" }} />
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] rounded-full blur-[80px] bg-accent/25 animate-glow-breathe" />
+          {/* left back */}
+          <div className="absolute left-1/2 -translate-x-[118%] top-[20%] w-40 z-10">
+            <div className="animate-float-slow" style={{ ['--rot' as string]: '-11deg', animationDelay: '-1.5s' }}><Poster src="/posters/dune.png" dim /></div>
+          </div>
+          {/* right back */}
+          <div className="absolute left-1/2 translate-x-[18%] top-[16%] w-40 z-10">
+            <div className="animate-float-slow" style={{ ['--rot' as string]: '11deg', animationDelay: '-3s' }}><Poster src="/posters/silo.png" dim /></div>
+          </div>
+          {/* center front */}
+          <div className="absolute left-1/2 -translate-x-1/2 top-[8%] w-56 z-20">
+            <div className="animate-float-slow" style={{ ['--rot' as string]: '-2deg' }}><Poster src="/posters/anime.png" big /></div>
+          </div>
+        </div>
+      </section>
+
+      {/* Marquee */}
+      <div className="relative z-10 border-y border-white/[0.06] bg-white/[0.015] py-4 overflow-hidden">
+        <div className="flex w-max animate-marquee gap-10 pr-10">
+          {[...MARQUEE, ...MARQUEE].map((m, i) => (
+            <span key={i} className="flex items-center gap-10 text-sm font-bold uppercase tracking-[0.2em] text-text-3 whitespace-nowrap">
+              {m}<span className="w-1.5 h-1.5 rounded-full bg-accent/50" />
             </span>
-          </button>
-          <button onClick={() => scrollTo("features")}
-            className="flex items-center gap-2 px-6 py-4 text-base font-semibold text-text-2 hover:text-white transition-colors duration-300 group">
-            Learn more
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="group-hover:translate-y-0.5 transition-transform"><path d="M7 2v10m0 0l4-4m-4 4L3 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </button>
-          <Link href="/release-radar" className="flex items-center gap-2 px-6 py-4 text-base font-semibold text-accent hover:text-white transition-colors duration-300 group">
-            Release Radar
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="group-hover:translate-y-0.5 transition-transform"><path d="M5 2h7v7M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </Link>
+          ))}
         </div>
+      </div>
 
-        <p className="text-xs text-text-3 mb-16">No credit card required · Free forever · 2-click setup</p>
-
-        <div className="w-full max-w-2xl mb-16 rounded-3xl border border-white/[0.08] bg-white/[0.03] px-5 py-4 text-left shadow-2xl shadow-black/20 backdrop-blur-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-text-3 mb-2">Engine Version</div>
-              <div className="text-lg font-black text-white">Latest release {LATEST_ENGINE_VERSION}</div>
-              <p className="text-sm text-text-2 mt-1">If your desktop engine is older, the protected dashboard will show the install-latest modal automatically.</p>
-            </div>
-            <div className="flex flex-col sm:items-end gap-2">
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-bold">
-                Update Ready
-              </span>
-              <button
-                onClick={() => window.open(DOWNLOAD_LINK, "_blank")}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-accent to-[#8b7aff] text-white text-sm font-bold shadow-lg shadow-accent/20 hover:shadow-accent/35 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
-              >
-                Download latest engine
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2h7v7M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              </button>
-            </div>
+      {/* Engine version banner */}
+      <section className="relative z-10 max-w-5xl mx-auto px-6 pt-16">
+        <div className="cine-card rounded-3xl px-6 py-5 shadow-cinema flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-text-3 mb-2">Desktop Engine</div>
+            <div className="text-lg font-black">Latest release {LATEST_ENGINE_VERSION} · auto-updates</div>
+            <p className="text-sm text-text-2 mt-1">Install once — new versions download and apply themselves in the background.</p>
           </div>
+          <button onClick={() => window.open(DOWNLOAD_LINK, "_blank")} className="btn-primary shrink-0">
+            Download engine
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v8m0 0 3-3M7 10 4 7M2 12h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        </div>
+      </section>
+
+      {/* Bento Features */}
+      <section id="features" className="relative z-10 max-w-6xl mx-auto px-6 py-20 scroll-mt-20">
+        <div className="text-center mb-12">
+          <div className="cine-chip px-4 py-1.5 mb-5 !text-teal border-teal/15 bg-teal/[0.08] uppercase tracking-[0.12em] font-bold">Features</div>
+          <h2 className="text-4xl md:text-5xl font-black tracking-tight">A full cinema, <span className="text-gradient-amber">privately yours.</span></h2>
         </div>
 
-        {/* Dashboard Preview */}
-        <div className="w-full max-w-4xl relative animate-fade-up [animation-delay:300ms] [animation-fill-mode:both]">
-          <div className="absolute -inset-1 bg-gradient-to-r from-accent/15 via-teal/10 to-accent/15 rounded-3xl opacity-50" />
-          <div className="relative rounded-2xl border border-white/[0.1] bg-surface overflow-hidden shadow-2xl shadow-black/60">
-            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-white/[0.06] bg-black/20">
-              <div className="w-3 h-3 rounded-full bg-[#ff5f57]" /><div className="w-3 h-3 rounded-full bg-[#febc2e]" /><div className="w-3 h-3 rounded-full bg-[#28c840]" />
-              <span className="ml-4 text-[11px] text-text-3 font-mono tracking-wide">vortex — search torrents</span>
-            </div>
-            <div className="p-6 md:p-8">
-              <div className="flex gap-5">
-                <div className="hidden md:flex flex-col gap-3 w-44 shrink-0">
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-accent/10"><div className="w-4 h-4 rounded bg-accent/40" /><div className="w-14 h-2.5 rounded bg-accent/30" /></div>
-                  {[1, 2, 3].map(i => <div key={i} className="flex items-center gap-2 px-3 py-2"><div className="w-4 h-4 rounded bg-white/[0.06]" /><div className="w-16 h-2.5 rounded bg-white/[0.04]" /></div>)}
-                  <div className="mt-auto pt-4 border-t border-white/[0.04]"><div className="px-3 py-2 space-y-2"><div className="flex justify-between"><div className="w-16 h-2 rounded bg-white/[0.04]" /><div className="w-10 h-2 rounded bg-teal/20" /></div><div className="h-1 rounded-full bg-white/[0.04]"><div className="h-1 rounded-full bg-gradient-to-r from-accent to-teal" style={{ width: "30%" }} /></div></div></div>
-                </div>
-                <div className="flex-1">
-                  <div className="flex gap-3 mb-5">
-                    <div className="flex-1 h-11 rounded-xl bg-elevated/80 border border-white/[0.06] flex items-center px-4"><div className="w-3 h-3 rounded-full bg-white/[0.06] mr-2" /><div className="w-32 h-2.5 rounded bg-white/[0.04]" /></div>
-                    <div className="w-24 h-11 rounded-xl bg-gradient-to-r from-accent to-[#8b7aff] flex items-center justify-center"><div className="w-12 h-2.5 rounded bg-white/30" /></div>
-                  </div>
-                  <div className="flex gap-2 mb-6">
-                    {["All", "Movies", "TV", "Anime", "Apps"].map((f, i) => (
-                      <div key={f} className={`px-3.5 py-1.5 rounded-full text-[10px] font-medium ${i === 0 ? "bg-accent/15 text-accent border border-accent/20" : "bg-white/[0.03] text-text-3 border border-white/[0.04]"}`}>{f}</div>
-                    ))}
-                  </div>
-                  <div className="space-y-2.5">
-                    {[{ w: "w-48", s: "42", p: "8" }, { w: "w-56", s: "128", p: "23" }, { w: "w-40", s: "67", p: "12" }, { w: "w-52", s: "95", p: "31" }].map((item, i) => (
-                      <div key={i} className="h-12 rounded-lg bg-white/[0.02] border border-white/[0.04] flex items-center px-4 gap-3">
-                        <div className={`${item.w} h-2.5 rounded bg-white/[0.06]`} /><div className="flex-1" />
-                        <div className="text-[10px] font-mono text-teal/60">{item.s}</div>
-                        <div className="text-[10px] font-mono text-text-3">{item.p}</div>
-                        <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center"><div className="w-2.5 h-2.5 rounded-sm bg-accent/30" /></div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 auto-rows-[180px]">
+          {/* Big: stream while downloading */}
+          <div className="cine-card cine-card-hover md:col-span-2 md:row-span-2 p-8 relative overflow-hidden group">
+            <div className="absolute -right-10 -top-10 w-56 h-56 rounded-full bg-accent/10 blur-3xl group-hover:bg-accent/20 transition-colors" />
+            <div className="relative">
+              <div className="w-14 h-14 rounded-2xl bg-accent/15 text-accent flex items-center justify-center mb-5">
+                <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+              </div>
+              <h3 className="text-2xl font-black mb-2">Stream while it downloads</h3>
+              <p className="text-text-2 max-w-md leading-relaxed">Hit play and watch instantly — Vortex streams as it fetches. Even 4K, x265 &amp; 10-bit play in your browser via on-the-fly transcoding, with a seekable timeline and resume.</p>
+              <div className="flex gap-2 mt-6 flex-wrap">
+                {["Transcode x265", "Seek anywhere", "Resume", "Episode picker"].map(t => <span key={t} className="cine-chip text-[11px]">{t}</span>)}
               </div>
             </div>
           </div>
-          <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-base to-transparent z-10 pointer-events-none" />
+          <BentoCard title="5 search sources" desc="ThePirateBay, Torrentio, Nyaa, AnimeTosho & TorrentCSV — searched at once.">
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+          </BentoCard>
+          <BentoCard title="Subtitles built in" desc="Embedded & OpenSubtitles tracks, right in the player.">
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 15h4M15 15h2M7 11h2M13 11h4" /></svg>
+          </BentoCard>
+          <BentoCard title="Release Radar" desc="Track upcoming anime & weekly episodes at a glance." accent="teal">
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4" /></svg>
+          </BentoCard>
+          <BentoCard title="Maximum speed" desc="WebTorrent tuned for 150+ Mbps & 300 connections." accent="teal">
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13z" /></svg>
+          </BentoCard>
+          <BentoCard title="Private & secure" desc="Google sign-in, per-user isolation, your data alone.">
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+          </BentoCard>
         </div>
       </section>
 
-      {/* Stats */}
-      <section className="relative z-10 max-w-5xl mx-auto px-6 py-16">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
+      {/* How it works */}
+      <section id="how-it-works" className="relative z-10 max-w-5xl mx-auto px-6 py-16 scroll-mt-20">
+        <div className="text-center mb-12">
+          <div className="cine-chip px-4 py-1.5 mb-5 !text-accent border-accent/15 bg-accent/[0.08] uppercase tracking-[0.12em] font-bold">How it works</div>
+          <h2 className="text-3xl md:text-4xl font-black tracking-tight">Up and running in seconds</h2>
+        </div>
+        <div className="grid md:grid-cols-3 gap-5">
           {[
-            { value: "4+", label: "Search Providers", color: "text-accent" },
-            { value: "150+", label: "Mbps Optimized", color: "text-teal" },
-            { value: "100%", label: "Private & Isolated", color: "text-[#ff6b9d]" },
-            { value: "$0", label: "Cost — Free Forever", color: "text-warning" },
-          ].map((stat, i) => (
-            <div key={i} className="text-center p-5 rounded-2xl bg-white/[0.02] border border-white/[0.04] hover:border-white/[0.08] transition-colors duration-300">
-              <div className={`text-4xl md:text-5xl font-black ${stat.color} mb-1.5`}>{stat.value}</div>
-              <div className="text-xs text-text-3 font-medium uppercase tracking-wider">{stat.label}</div>
+            { n: "01", t: "Sign in", d: "One-click Google auth. No passwords, no forms." },
+            { n: "02", t: "Search & grab", d: "Search 5 providers and start downloading instantly." },
+            { n: "03", t: "Stream & manage", d: "Play in-browser, track stats, build your library." },
+          ].map((s) => (
+            <div key={s.n} className="cine-card cine-card-hover p-7 relative overflow-hidden">
+              <div className="absolute top-3 right-4 text-6xl font-black text-accent/[0.08] select-none">{s.n}</div>
+              <div className="text-[10px] font-bold text-accent uppercase tracking-[0.2em] mb-2">Step {s.n}</div>
+              <h3 className="text-xl font-bold mb-2 text-text-1">{s.t}</h3>
+              <p className="text-sm text-text-3 leading-relaxed">{s.d}</p>
             </div>
           ))}
-        </div>
-      </section>
-
-      {/* Features */}
-      <section id="features" className="relative z-10 max-w-6xl mx-auto px-6 py-16 scroll-mt-20">
-        <div className="text-center mb-16">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 mb-5 rounded-full bg-teal/[0.08] border border-teal/15 text-teal text-xs font-bold uppercase tracking-[0.12em]">Features</div>
-          <h2 className="text-3xl md:text-5xl font-black tracking-tight mb-4">Everything you need,<br /><span className="text-text-2">nothing you don&apos;t</span></h2>
-          <p className="text-text-2 max-w-lg mx-auto">A complete torrent management platform engineered for power users who demand a premium experience.</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {[
-            { icon: "🔍", title: "Multi-Source Search", desc: "Search ThePirateBay, Nyaa, AnimeTosho, TorrentCSV simultaneously with smart deduplication and filters.", bg: "from-accent/10 via-accent/5 to-transparent" },
-            { icon: "⚡", title: "Maximum Speed", desc: "WebTorrent engine optimized for 150+ Mbps with 300 concurrent connections and smart peer management.", bg: "from-teal/10 via-teal/5 to-transparent" },
-            { icon: "🎬", title: "Media Library", desc: "Auto-organized library with poster fetching from TVmaze, Jikan & Kitsu, plus automatic subtitle downloads.", bg: "from-[#ff6b9d]/10 via-[#ff6b9d]/5 to-transparent" },
-            { icon: "📅", title: "Release Radar", desc: "Track upcoming anime and weekly episodes at a glance, so you only focus on what is actually airing next.", bg: "from-teal/10 via-accent/5 to-transparent" },
-            { icon: "🔒", title: "Private & Secure", desc: "Google authentication with per-user data isolation. Your torrents, settings, and stats are yours alone.", bg: "from-warning/10 via-warning/5 to-transparent" },
-            { icon: "📊", title: "Real-Time Stats", desc: "Live download speeds, upload ratios, storage visualization, and lifetime statistics updating every second.", bg: "from-accent/8 via-teal/5 to-transparent" },
-            { icon: "🎛️", title: "Full Control", desc: "Bandwidth limits, download paths, auto-seeding, subtitle preferences — every detail is configurable.", bg: "from-teal/8 via-accent/5 to-transparent" },
-          ].map((f, i) => (
-            <div key={i} className={`p-6 rounded-2xl bg-gradient-to-br ${f.bg} border border-white/[0.05] hover:border-white/[0.12] transition-all duration-300 hover:-translate-y-1`}>
-              <div className="text-3xl mb-4">{f.icon}</div>
-              <h3 className="text-base font-bold mb-2 text-white">{f.title}</h3>
-              <p className="text-sm text-text-2 leading-relaxed">{f.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* How It Works */}
-      <section id="how-it-works" className="relative z-10 max-w-5xl mx-auto px-6 py-20 scroll-mt-20">
-        <div className="text-center mb-16">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 mb-5 rounded-full bg-accent/[0.08] border border-accent/15 text-accent text-xs font-bold uppercase tracking-[0.12em]">How it works</div>
-          <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-4">Up and running in seconds</h2>
-          <p className="text-text-2 max-w-md mx-auto">Three simple steps to take full control of your torrents.</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-          {[
-            {
-              step: "01", title: "Sign In", desc: "One-click Google authentication. No passwords to remember, no forms to fill out.", icon: (
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" /></svg>
-              ), color: "accent", gradient: "from-accent/20 via-accent/5 to-transparent", ring: "ring-accent/20"
-            },
-            {
-              step: "02", title: "Search & Download", desc: "Search across 4+ providers, find what you want, and start downloading instantly.", icon: (
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /><path d="M11 8v6M8 11h6" /></svg>
-              ), color: "teal", gradient: "from-teal/20 via-teal/5 to-transparent", ring: "ring-teal/20"
-            },
-            {
-              step: "03", title: "Enjoy & Manage", desc: "Stream media, manage your library, track stats — all from your private dashboard.", icon: (
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
-              ), color: "[#ff6b9d]", gradient: "from-[#ff6b9d]/20 via-[#ff6b9d]/5 to-transparent", ring: "ring-[#ff6b9d]/20"
-            },
-          ].map((item, i) => (
-            <div key={i} className={`relative p-8 rounded-2xl bg-gradient-to-br ${item.gradient} border border-white/[0.06] hover:border-white/[0.12] transition-all duration-300 group`}>
-              {/* Step number watermark */}
-              <div className={`absolute top-4 right-5 text-6xl font-black text-${item.color}/[0.07] select-none`}>{item.step}</div>
-
-              {/* Icon */}
-              <div className={`w-14 h-14 rounded-xl bg-${item.color}/10 border border-${item.color}/15 ring-1 ${item.ring} flex items-center justify-center text-${item.color} mb-5 group-hover:scale-105 transition-transform duration-300`}>
-                {item.icon}
-              </div>
-
-              {/* Step label */}
-              <div className={`text-[10px] font-bold text-${item.color} uppercase tracking-[0.2em] mb-2`}>Step {item.step}</div>
-              <h3 className="text-xl font-bold text-white mb-2">{item.title}</h3>
-              <p className="text-sm text-text-2 leading-relaxed">{item.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Safety & FAQ */}
-      <section className="relative z-10 max-w-5xl mx-auto px-6 py-20 scroll-mt-20">
-        <div className="text-center mb-16">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 mb-5 rounded-full bg-warning/[0.08] border border-warning/15 text-warning text-xs font-bold uppercase tracking-[0.12em]">Safety & Privacy</div>
-          <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-4">Is Vortex safe to run?</h2>
-          <p className="text-text-2 max-w-md mx-auto">Common questions about the Vortex standalone engine and Windows security flags.</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="p-8 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
-            <h3 className="text-lg font-bold text-white mb-3">Why does Windows flag the engine?</h3>
-            <p className="text-sm text-text-2 leading-relaxed">
-              The Vortex Engine is a standalone tool that performs peer-to-peer networking (torrenting). Because it is not digitally signed with an expensive certificate, Windows SmartScreen flags it as "unrecognized". This is normal for many open-source tools.
-            </p>
-          </div>
-          <div className="p-8 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
-            <h3 className="text-lg font-bold text-white mb-3">How do I bypass the warning?</h3>
-            <p className="text-sm text-text-2 leading-relaxed">
-              When the red "Windows protected your PC" screen appears, click <strong>"More info"</strong> and then <strong>"Run anyway"</strong>. Your engine will then start normally and connect to this dashboard.
-            </p>
-          </div>
         </div>
       </section>
 
       {/* CTA */}
       <section className="relative z-10 max-w-4xl mx-auto px-6 py-16 text-center">
-        <div className="relative overflow-hidden p-12 md:p-16 rounded-3xl border border-white/[0.08] bg-gradient-to-br from-accent/10 via-surface to-teal/8">
-          <div className="relative">
-            <h2 className="text-3xl md:text-5xl font-black mb-5 tracking-tight">Ready to take<br />control?</h2>
-            <p className="text-text-2 mb-10 max-w-md mx-auto text-base">Sign in with Google and start managing your torrents from a premium, private interface.</p>
-            <button onClick={() => router.push("/login")}
-              className="px-10 py-4 text-base font-bold rounded-2xl bg-gradient-to-r from-accent to-teal text-white shadow-2xl shadow-accent/25 hover:shadow-accent/40 transition-all duration-300 hover:scale-[1.03] active:scale-[0.98]">
-              <span className="flex items-center gap-2">
-                <svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#fff" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#fff" opacity=".8" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#fff" opacity=".6" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#fff" opacity=".9" /></svg>
-                Sign In with Google
-              </span>
-            </button>
-          </div>
+        <div className="relative overflow-hidden cine-card rounded-3xl p-12 md:p-16 shadow-cinema-lg" style={{ background: "radial-gradient(ellipse 80% 100% at 50% 0%, rgba(245,166,35,0.12) 0%, transparent 70%), #131316" }}>
+          <h2 className="text-3xl md:text-5xl font-black mb-5 tracking-tight">Ready to <span className="text-gradient-amber">press play?</span></h2>
+          <p className="text-text-2 mb-9 max-w-md mx-auto">Sign in with Google and turn your torrents into a private streaming app.</p>
+          <button onClick={() => router.push("/login")} className="btn-primary px-10 py-4 text-base shadow-accent-glow">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-white">
+              <svg width="15" height="15" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" /></svg>
+            </span>
+            Sign In with Google
+          </button>
         </div>
       </section>
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-white/[0.06]">
-        <div className="max-w-6xl mx-auto px-6 py-12">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-10 md:gap-8 mb-10">
-            <div className="md:col-span-2">
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-teal flex items-center justify-center text-white text-xs font-black">V</div>
-                <span className="text-lg font-black text-white">Vortex</span>
-              </div>
-              <p className="text-sm text-text-3 leading-relaxed max-w-sm mb-4">A premium private torrent management platform built for speed, privacy, and beautiful design.</p>
-              <div className="flex items-center gap-1.5 text-xs text-text-3"><span className="w-1.5 h-1.5 rounded-full bg-teal" />All systems operational</div>
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-4">Product</h4>
-              <ul className="space-y-2.5">
-                <li><button onClick={() => scrollTo("features")} className="text-sm text-text-3 hover:text-white transition-colors">Features</button></li>
-                <li><button onClick={() => scrollTo("how-it-works")} className="text-sm text-text-3 hover:text-white transition-colors">How it works</button></li>
-                <li><button onClick={() => router.push("/login")} className="text-sm text-text-3 hover:text-white transition-colors">Get Started</button></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-4">Legal</h4>
-              <ul className="space-y-2.5">
-                <li><a href="/terms" className="text-sm text-text-3 hover:text-white transition-colors">Terms of Service</a></li>
-                <li><a href="/privacy" className="text-sm text-text-3 hover:text-white transition-colors">Privacy Policy</a></li>
-                <li><a href="/cookies" className="text-sm text-text-3 hover:text-white transition-colors">Cookie Policy</a></li>
-              </ul>
-            </div>
+        <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center text-black text-xs font-black">V</div>
+            <span className="text-lg font-black">Vortex</span>
+            <span className="ml-3 flex items-center gap-1.5 text-xs text-text-3"><span className="w-1.5 h-1.5 rounded-full bg-teal" />All systems operational</span>
           </div>
-          <div className="flex flex-col md:flex-row items-center justify-between pt-8 border-t border-white/[0.04] gap-4">
-            <p className="text-xs text-text-3">© {new Date().getFullYear()} Vortex. All rights reserved.</p>
-            <div className="flex items-center gap-6">
-              <a href="/terms" className="text-xs text-text-3 hover:text-text-2 transition-colors">Terms</a>
-              <a href="/privacy" className="text-xs text-text-3 hover:text-text-2 transition-colors">Privacy</a>
-              <a href="/cookies" className="text-xs text-text-3 hover:text-text-2 transition-colors">Cookies</a>
-            </div>
+          <div className="flex items-center gap-6 text-xs text-text-3">
+            <a href="/terms" className="hover:text-text-1 transition-colors">Terms</a>
+            <a href="/privacy" className="hover:text-text-1 transition-colors">Privacy</a>
+            <a href="/cookies" className="hover:text-text-1 transition-colors">Cookies</a>
+            <span>© {new Date().getFullYear()} Vortex</span>
           </div>
         </div>
       </footer>
+    </div>
+  );
+}
 
+function Poster({ src, big, dim }: { src: string; big?: boolean; dim?: boolean }) {
+  return (
+    <div className={`relative rounded-[20px] overflow-hidden poster-ratio border ${big ? "ring-1 ring-accent/40 border-white/15" : "border-white/10"} shadow-[0_40px_85px_-28px_rgba(0,0,0,0.92)] ${dim ? "brightness-[0.78]" : ""}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="" className="w-full h-full object-cover" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/5 to-transparent" />
+      {big && (
+        <>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="relative flex items-center justify-center">
+              <span className="absolute w-[70px] h-[70px] rounded-full bg-accent/25 animate-glow-breathe" />
+              <span className="relative w-[54px] h-[54px] rounded-full bg-accent text-black flex items-center justify-center shadow-accent-glow ring-4 ring-black/25">
+                <svg className="w-6 h-6 ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+              </span>
+            </span>
+          </div>
+          <div className="absolute bottom-3 inset-x-3">
+            <div className="h-1 rounded-full bg-white/25 overflow-hidden"><div className="h-full w-2/5 bg-accent rounded-full" /></div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function BentoCard({ title, desc, children, accent = "accent" }: { title: string; desc: string; children: React.ReactNode; accent?: "accent" | "teal" }) {
+  const color = accent === "teal" ? "bg-teal/15 text-teal" : "bg-accent/15 text-accent";
+  return (
+    <div className="cine-card cine-card-hover p-6 hover:-translate-y-1 transition-transform">
+      <div className={`w-11 h-11 mb-4 rounded-xl flex items-center justify-center ${color}`}>{children}</div>
+      <h3 className="text-base font-bold mb-1.5 text-text-1">{title}</h3>
+      <p className="text-[13px] text-text-3 leading-relaxed">{desc}</p>
     </div>
   );
 }
