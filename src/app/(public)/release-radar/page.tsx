@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import RefreshRadarButton from "@/components/RefreshRadarButton";
 import RadarAuthButton from "@/components/RadarAuthButton";
+import RadarCard from "@/components/RadarCard";
 
 export const revalidate = 300;
 export const runtime = "nodejs";
@@ -169,7 +170,9 @@ function cleanTitle(value: unknown) {
 }
 
 function normalizeAnimeTitle(value: unknown) {
-    return normalizeText(cleanTitle(value)).replace(/\b(season|part|cour|ii|iii|iv|2nd|3rd|4th)\b/g, "").replace(/\s+/g, " ").trim();
+    // Keep season/part markers so different seasons of a show stay as separate cards
+    // (previously "… S1" and "… S4" collapsed into one).
+    return normalizeText(cleanTitle(value));
 }
 
 function makeAnimeKey(entry: any, source: string) {
@@ -392,60 +395,6 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint: 
     );
 }
 
-function PosterCard({
-    title,
-    subtitle,
-    url,
-    image,
-    meta,
-    description,
-    accent = "accent",
-}: {
-    title: string;
-    subtitle: string;
-    url: string;
-    image?: string;
-    meta: Chip[];
-    description?: string | null;
-    accent?: "accent" | "teal";
-}) {
-    return (
-        <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className="group flex gap-4 cine-card cine-card-hover p-4"
-            style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
-        >
-            <div className={`poster-ratio w-16 shrink-0 overflow-hidden rounded-xl border bg-base ${accent === "teal" ? "border-teal/20" : "border-accent/20"}`}>
-                {image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={image} alt={title} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" decoding="async" fetchPriority="low" />
-                ) : (
-                    <div className="flex h-full w-full items-center justify-center text-text-3">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6" aria-hidden="true">
-                            <rect x="3" y="3" width="18" height="18" rx="2" />
-                            <path d="M3 9h18M9 3v18" />
-                        </svg>
-                    </div>
-                )}
-            </div>
-            <div className="min-w-0 flex-1">
-                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-3">{subtitle}</div>
-                <div className="mt-1 text-base font-bold text-text-1">{title}</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                    {meta.map(item => (
-                        <span key={item.label} className={`cine-chip ${chipClass(item.tone)}`}>
-                            {item.label}
-                        </span>
-                    ))}
-                </div>
-                {description ? <p className="mt-2 text-sm text-text-3 line-clamp-2">{description}</p> : null}
-            </div>
-        </a>
-    );
-}
-
 function AccordionSection<T extends { key: string }>({
     title,
     subtitle,
@@ -539,12 +488,6 @@ export default async function ReleaseRadarPage() {
         .map(bucket => ({ ...bucket, items: bucket.items.slice(0, MAX_RENDER_ITEMS_PER_BUCKET) }));
 
     const nowLabel = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" }).format(new Date());
-    const sourceSnapshot = [
-        `Jikan upcoming: ${jikanUpcoming.length}`,
-        `Jikan weekly: ${jikanWeekly.length}`,
-        `AniList now: ${aniListNow.length}`,
-        `AniList next: ${aniListNext.length}`,
-    ].join(" • ");
 
     return (
         <div className="min-h-screen bg-base text-text-1">
@@ -586,9 +529,8 @@ export default async function ReleaseRadarPage() {
                         <div className="mt-6 max-w-4xl">
                             <h1 className="cine-title text-4xl tracking-tight md:text-6xl">Anime coming soon and what is airing now.</h1>
                             <p className="mt-4 max-w-3xl text-base leading-relaxed text-text-2 md:text-lg">
-                                Merged from Jikan and AniList, then shaped into a premium radar with clean genre buckets, consistent episode labels, and a strong visual hierarchy.
+                                Upcoming and currently-airing anime, organized by genre. Tap any title to search for it in Vortex.
                             </p>
-                            <p className="mt-3 text-sm text-text-3">Source snapshot: {sourceSnapshot}</p>
                         </div>
 
                         <div className="mt-8 grid gap-4 sm:grid-cols-3">
@@ -631,11 +573,11 @@ export default async function ReleaseRadarPage() {
                         badge="Anime"
                         defaultOpen={false}
                         renderItem={item => (
-                            <PosterCard
+                            <RadarCard
                                 key={item.key}
                                 title={item.title}
+                                searchTitle={item.title}
                                 subtitle={`Upcoming anime • ${item.source}`}
-                                url={item.url}
                                 image={item.image}
                                 meta={[
                                     { label: item.year ? String(item.year) : "Soon", tone: "neutral" },
@@ -656,11 +598,11 @@ export default async function ReleaseRadarPage() {
                         badge="Anime"
                         defaultOpen={false}
                         renderItem={item => (
-                            <PosterCard
+                            <RadarCard
                                 key={item.key}
                                 title={item.title}
+                                searchTitle={item.title}
                                 subtitle={`Airing now • ${item.source}`}
-                                url={item.url}
                                 image={item.image}
                                 accent="teal"
                                 meta={(() => {

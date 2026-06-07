@@ -26,9 +26,34 @@ async function cinemeta(type: "movie" | "series"): Promise<DiscoverItem[]> {
     } catch { return []; }
 }
 
-async function topAnime(): Promise<DiscoverItem[]> {
+// AniList GraphQL — reliable from datacenter IPs (Jikan rate-limits/blocks Vercel,
+// which is why the Top Anime row was empty in production). Jikan is kept as a fallback.
+async function aniListPopularAnime(): Promise<DiscoverItem[]> {
+    const query = `query { Page(page: 1, perPage: 24) { media(type: ANIME, sort: POPULARITY_DESC, isAdult: false) { title { english romaji } coverImage { extraLarge large } seasonYear } } }`;
     try {
-        const res = await fetch("https://api.jikan.moe/v4/top/anime?filter=bypopularity&limit=24", { next: { revalidate } });
+        const res = await fetch("https://graphql.anilist.co", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query }),
+            next: { revalidate },
+            signal: AbortSignal.timeout(6000),
+        });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data?.data?.Page?.media || [])
+            .map((m: { title?: { english?: string; romaji?: string }; coverImage?: { extraLarge?: string; large?: string }; seasonYear?: number }) => ({
+                name: m.title?.english || m.title?.romaji || "",
+                poster: m.coverImage?.extraLarge || m.coverImage?.large || "",
+                year: m.seasonYear ? String(m.seasonYear) : "",
+                type: "anime",
+            }))
+            .filter((m: DiscoverItem) => m.name && m.poster && !isAdultTitle(m.name));
+    } catch { return []; }
+}
+
+async function jikanPopularAnime(): Promise<DiscoverItem[]> {
+    try {
+        const res = await fetch("https://api.jikan.moe/v4/top/anime?filter=bypopularity&limit=24", { next: { revalidate }, signal: AbortSignal.timeout(6000) });
         if (!res.ok) return [];
         const data = await res.json();
         return (data.data || [])
@@ -40,6 +65,12 @@ async function topAnime(): Promise<DiscoverItem[]> {
             }))
             .filter((m: DiscoverItem) => m.name && m.poster && !isAdultTitle(m.name));
     } catch { return []; }
+}
+
+async function topAnime(): Promise<DiscoverItem[]> {
+    const anilist = await aniListPopularAnime();
+    if (anilist.length > 0) return anilist;
+    return jikanPopularAnime();
 }
 
 export async function GET() {

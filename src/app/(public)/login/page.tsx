@@ -10,7 +10,13 @@ export default function LoginPage() {
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { if (!loading && user) router.push("/search"); }, [user, loading, router]);
+  useEffect(() => {
+    if (loading || !user) return;
+    // Return the user to where they came from (e.g. a Release Radar card → /search?q=…),
+    // but only allow internal paths to avoid open-redirects.
+    const next = new URLSearchParams(window.location.search).get("next");
+    router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/search");
+  }, [user, loading, router]);
 
   const handleGoogleSignIn = async () => {
     setSigningIn(true);

@@ -628,6 +628,19 @@ export default function SearchPage() {
         return () => { cancelled = true; };
     }, []);
 
+    // Deep link: /search?q=Title auto-runs a search (used by Release Radar cards).
+    const deepLinkRan = useRef(false);
+    useEffect(() => {
+        if (deepLinkRan.current) return;
+        const q = new URLSearchParams(window.location.search).get('q');
+        if (q && q.trim()) {
+            deepLinkRan.current = true;
+            setSearchQuery(q);
+            handleSearch(undefined, q);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const handleClear = () => {
         posterAbortRef.current?.abort();
         clearSearch();
