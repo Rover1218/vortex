@@ -936,35 +936,32 @@ export default function SearchPage() {
                 url: (q: string, year: string) => string,
                 onMiss?: (item: { key: string; query: string; year: string }) => void,
             ) => {
+                // Update one poster as soon as IT resolves (not once per batch), so they
+                // appear progressively one-by-one — matching the order they come back.
+                const applyPoster = (key: string, poster: string | null) => {
+                    setPosters(prev => {
+                        if (poster === null && typeof prev[key] === 'string' && prev[key]) return prev; // keep a real poster
+                        if (prev[key] === poster) return prev;
+                        return { ...prev, [key]: poster };
+                    });
+                };
                 for (let i = 0; i < items.length; i += batchSize) {
                     if (controller.signal.aborted) break;
                     const batch = items.slice(i, i + batchSize);
-                    const posterBatchUpdates: Record<string, string | null> = {};
                     await Promise.all(batch.map(async (item) => {
                         const { key, query, year } = item;
                         try {
                             const r = await fetch(url(query, year), { signal: controller.signal });
                             const data = await r.json();
                             const poster = data?.poster ?? null;
-                            posterBatchUpdates[key] = poster;
                             if (poster === null && onMiss) onMiss(item);
+                            if (!controller.signal.aborted) applyPoster(key, poster);
                         } catch {
-                            if (!controller.signal.aborted) { posterBatchUpdates[key] = null; if (onMiss) onMiss(item); }
+                            if (!controller.signal.aborted && onMiss) onMiss(item);
                         } finally {
                             fetchingRef.current.delete(key);
                         }
                     }));
-                    if (Object.keys(posterBatchUpdates).length > 0) {
-                        setPosters(prev => {
-                            const next = { ...prev };
-                            for (const [k, v] of Object.entries(posterBatchUpdates)) {
-                                // Never overwrite an already-resolved poster with a null/blank.
-                                if (v === null && typeof prev[k] === 'string' && prev[k]) continue;
-                                next[k] = v;
-                            }
-                            return next;
-                        });
-                    }
                     if (items.length > batchSize && !controller.signal.aborted) await new Promise(res => setTimeout(res, 100));
                 }
             };

@@ -385,6 +385,41 @@ async function getAniListSeasonAnime(kind: "now" | "next"): Promise<AnimeItem[]>
     return uniqueBy(items, item => item.key).slice(0, 100);
 }
 
+type MediaKind = "movie" | "series";
+
+type MediaItem = {
+    key: string;
+    title: string;
+    image?: string;
+    year: number | null;
+    released: string | null;
+    score: number | null;
+    synopsis: string | null;
+    genres: string[];
+};
+
+// Movies / TV via Cinemeta (keyless, datacenter-friendly — same source as the search
+// page's discover rows). The "top" catalog returns currently-popular titles.
+async function getCinemetaMedia(type: MediaKind): Promise<MediaItem[]> {
+    const data = await fetchJson(`https://v3-cinemeta.strem.io/catalog/${type}/top.json`);
+    const metas = Array.isArray(data?.metas) ? data.metas : [];
+
+    return metas
+        .map((m: any) => ({
+            key: `cinemeta:${type}:${m.imdb_id || m.id || m.name}`,
+            title: cleanTitle(m.name),
+            image: String(m.poster || "").replace("/poster/small/", "/poster/medium/"),
+            year: m.releaseInfo ? (parseInt(String(m.releaseInfo).slice(0, 4), 10) || null) : null,
+            released: typeof m.released === "string" ? m.released : null,
+            score: typeof m.imdbRating === "string" && m.imdbRating
+                ? (parseFloat(m.imdbRating) || null)
+                : (typeof m.imdbRating === "number" ? m.imdbRating : null),
+            synopsis: stripHtml(m.description).slice(0, 200) || null,
+            genres: Array.isArray(m.genre) ? m.genre : Array.isArray(m.genres) ? m.genres : [],
+        }))
+        .filter((m: MediaItem) => m.title && m.title !== "Untitled");
+}
+
 function StatCard({ label, value, hint }: { label: string; value: string; hint: string }) {
     return (
         <div className="rounded-2xl border border-white/[0.06] bg-elevated p-4">
@@ -465,12 +500,27 @@ export default async function ReleaseRadarPage() {
         revalidatePath("/release-radar");
     }
 
-    const [jikanUpcoming, jikanWeekly, aniListNow, aniListNext] = await Promise.all([
+    const [jikanUpcoming, jikanWeekly, aniListNow, aniListNext, cinemetaMovies, cinemetaSeries] = await Promise.all([
         getJikanUpcomingAnime(),
         getJikanNowAiringAnime(),
         getAniListSeasonAnime("now"),
         getAniListSeasonAnime("next"),
+        getCinemetaMedia("movie"),
+        getCinemetaMedia("series"),
     ]);
+
+    // Split movies/shows into "coming soon" (release date still in the future) vs
+    // currently popular, then bucket each by genre for the accordion sections.
+    const nowMs = Date.now();
+    const isFuture = (m: MediaItem) => (m.released ? new Date(m.released).getTime() > nowMs : false);
+    const toMediaBuckets = (items: MediaItem[]) => ANIME_BUCKETS
+        .map(name => ({ name, items: items.filter(item => bucketForGenres(item.genres) === name) }))
+        .filter(bucket => bucket.items.length > 0)
+        .map(bucket => ({ ...bucket, items: bucket.items.slice(0, MAX_RENDER_ITEMS_PER_BUCKET) }));
+
+    const movieSoonBuckets = toMediaBuckets(cinemetaMovies.filter(isFuture));
+    const movieNowBuckets = toMediaBuckets(cinemetaMovies.filter(m => !isFuture(m)));
+    const seriesNowBuckets = toMediaBuckets(cinemetaSeries.filter(m => !isFuture(m)));
 
     const animeMerged = mergeAnimeCollections(uniqueBy([...jikanUpcoming, ...aniListNext], item => item.key), uniqueBy([...jikanWeekly, ...aniListNow], item => item.key));
     const animeAll = animeMerged;
@@ -527,25 +577,17 @@ export default async function ReleaseRadarPage() {
                         </div>
 
                         <div className="mt-6 max-w-4xl">
-                            <h1 className="cine-title text-4xl tracking-tight md:text-6xl">Anime coming soon and what is airing now.</h1>
+                            <h1 className="cine-title text-4xl tracking-tight md:text-6xl">What&apos;s coming and what&apos;s playing — movies, shows &amp; anime.</h1>
                             <p className="mt-4 max-w-3xl text-base leading-relaxed text-text-2 md:text-lg">
-                                Upcoming and currently-airing anime, organized by genre. Tap any title to search for it in Vortex.
+                                Popular movies and TV plus upcoming and currently-airing anime, organized by genre. Tap any title to search for it in Vortex.
                             </p>
                         </div>
 
-                        <div className="mt-8 grid gap-4 sm:grid-cols-3">
-                            <StatCard label="Updated" value={nowLabel} hint="Fresh weekly snapshot" />
-                            <StatCard label="All anime" value={String(animeAll.length)} hint="Merged Jikan + AniList" />
-                            <StatCard label="Now airing" value={String(animeNow.length)} hint="Current-season anime" />
-                        </div>
-
-                        <div className="mt-5 grid gap-3 md:grid-cols-2">
-                            <div className="rounded-2xl border border-white/[0.06] bg-elevated px-4 py-3 text-sm text-text-2">
-                                <span className="font-bold text-text-1">Airing now</span> cards stay consistent: episode number when known, otherwise a weekly schedule label.
-                            </div>
-                            <div className="rounded-2xl border border-white/[0.06] bg-elevated px-4 py-3 text-sm text-text-2">
-                                <span className="font-bold text-text-1">Started recently</span> highlights episode 1 and 2 so new shows stand out immediately.
-                            </div>
+                        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                            <StatCard label="Updated" value={nowLabel} hint="Fresh snapshot" />
+                            <StatCard label="Movies" value={String(cinemetaMovies.length)} hint="Popular now" />
+                            <StatCard label="TV shows" value={String(cinemetaSeries.length)} hint="Popular now" />
+                            <StatCard label="Anime" value={String(animeAll.length)} hint={`${animeNow.length} airing now`} />
                         </div>
                     </div>
                 </section>
@@ -565,6 +607,82 @@ export default async function ReleaseRadarPage() {
                 </section>
 
                 <div className="mt-8 space-y-8">
+                    {movieSoonBuckets.length > 0 && (
+                        <AccordionSection
+                            title="Movies coming soon"
+                            subtitle="Upcoming releases from Cinemeta, grouped by genre."
+                            items={movieSoonBuckets}
+                            emptyText="No upcoming movies right now."
+                            badge="Movies"
+                            defaultOpen={false}
+                            renderItem={(item: MediaItem) => (
+                                <RadarCard
+                                    key={item.key}
+                                    title={item.title}
+                                    searchTitle={item.title}
+                                    upcoming
+                                    subtitle="Upcoming movie"
+                                    image={item.image}
+                                    meta={[
+                                        { label: item.year ? String(item.year) : "Soon", tone: "neutral" },
+                                        { label: item.score ? `★ ${item.score.toFixed(1)}` : "Unrated", tone: "amber" },
+                                        { label: bucketForGenres(item.genres).toUpperCase(), tone: genreTone(bucketForGenres(item.genres)) },
+                                    ]}
+                                    description={item.synopsis}
+                                />
+                            )}
+                        />
+                    )}
+
+                    <AccordionSection
+                        title="Movies — popular now"
+                        subtitle="Trending movies from Cinemeta, grouped by genre. Tap to search."
+                        items={movieNowBuckets}
+                        emptyText="No movies could be loaded right now."
+                        badge="Movies"
+                        defaultOpen={false}
+                        renderItem={(item: MediaItem) => (
+                            <RadarCard
+                                key={item.key}
+                                title={item.title}
+                                searchTitle={item.title}
+                                subtitle="Movie"
+                                image={item.image}
+                                meta={[
+                                    { label: item.year ? String(item.year) : "Movie", tone: "neutral" },
+                                    { label: item.score ? `★ ${item.score.toFixed(1)}` : "Unrated", tone: "amber" },
+                                    { label: bucketForGenres(item.genres).toUpperCase(), tone: genreTone(bucketForGenres(item.genres)) },
+                                ]}
+                                description={item.synopsis}
+                            />
+                        )}
+                    />
+
+                    <AccordionSection
+                        title="TV shows — popular now"
+                        subtitle="Trending series from Cinemeta, grouped by genre. Tap to search."
+                        items={seriesNowBuckets}
+                        emptyText="No shows could be loaded right now."
+                        badge="TV"
+                        defaultOpen={false}
+                        renderItem={(item: MediaItem) => (
+                            <RadarCard
+                                key={item.key}
+                                title={item.title}
+                                searchTitle={item.title}
+                                subtitle="TV series"
+                                image={item.image}
+                                accent="teal"
+                                meta={[
+                                    { label: item.year ? String(item.year) : "Series", tone: "neutral" },
+                                    { label: item.score ? `★ ${item.score.toFixed(1)}` : "Unrated", tone: "amber" },
+                                    { label: bucketForGenres(item.genres).toUpperCase(), tone: genreTone(bucketForGenres(item.genres)) },
+                                ]}
+                                description={item.synopsis}
+                            />
+                        )}
+                    />
+
                     <AccordionSection
                         title="Anime coming soon"
                         subtitle="Jikan upcoming + AniList next season, grouped by genre and stacked by bucket."
@@ -577,6 +695,7 @@ export default async function ReleaseRadarPage() {
                                 key={item.key}
                                 title={item.title}
                                 searchTitle={item.title}
+                                upcoming
                                 subtitle={`Upcoming anime • ${item.source}`}
                                 image={item.image}
                                 meta={[

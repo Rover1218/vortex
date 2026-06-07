@@ -22,7 +22,7 @@ function chipClass(tone: ChipTone = "neutral") {
 // page, so logged-out users are sent to login first, then bounced back to the search
 // (via ?next=) once signed in — no dead-end, no external hop.
 export default function RadarCard({
-    title, subtitle, image, meta, description, accent = "accent", searchTitle,
+    title, subtitle, image, meta, description, accent = "accent", searchTitle, upcoming = false,
 }: {
     title: string;
     subtitle: string;
@@ -31,11 +31,15 @@ export default function RadarCard({
     description?: string | null;
     accent?: "accent" | "teal";
     searchTitle: string;
+    upcoming?: boolean;
 }) {
     const { user } = useAuth();
     const router = useRouter();
 
+    // Upcoming titles aren't released yet — there are no torrents to find, so the card
+    // is informational only (no in-app search).
     const go = () => {
+        if (upcoming) return;
         const dest = `/search?q=${encodeURIComponent(searchTitle)}`;
         router.push(user ? dest : `/login?next=${encodeURIComponent(dest)}`);
     };
@@ -44,14 +48,15 @@ export default function RadarCard({
         <button
             type="button"
             onClick={go}
-            title={`Search "${searchTitle}" in Vortex`}
-            className="group flex w-full gap-4 cine-card cine-card-hover p-4 text-left"
+            disabled={upcoming}
+            title={upcoming ? "Coming soon — not released yet" : `Search "${searchTitle}" in Vortex`}
+            className={`group/card flex w-full gap-4 cine-card p-4 text-left ${upcoming ? "cursor-default" : "cine-card-hover"}`}
             style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
         >
             <div className={`poster-ratio w-16 shrink-0 overflow-hidden rounded-xl border bg-base ${accent === "teal" ? "border-teal/20" : "border-accent/20"}`}>
                 {image ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={image} alt={title} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" decoding="async" />
+                    <img src={image} alt={title} className="h-full w-full object-cover transition-transform duration-300 group-hover/card:scale-105" loading="lazy" decoding="async" />
                 ) : (
                     <div className="flex h-full w-full items-center justify-center text-text-3">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6" aria-hidden="true">
@@ -62,9 +67,11 @@ export default function RadarCard({
             </div>
             <div className="min-w-0 flex-1">
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-3">{subtitle}</div>
-                <div className="mt-1 flex items-center gap-1.5 text-base font-bold text-text-1 group-hover:text-accent transition-colors">
+                <div className={`mt-1 flex items-center gap-1.5 text-base font-bold text-text-1 transition-colors ${upcoming ? "" : "group-hover/card:text-accent"}`}>
                     {title}
-                    <svg className="h-3.5 w-3.5 shrink-0 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+                    {!upcoming && (
+                        <svg className="h-3.5 w-3.5 shrink-0 opacity-0 -translate-x-1 group-hover/card:opacity-100 group-hover/card:translate-x-0 transition-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+                    )}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                     {meta.map(item => (
