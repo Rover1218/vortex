@@ -602,6 +602,7 @@ export default function DownloadsPage() {
 
             {streamTarget && (
                 <StreamPlayer
+                    key={streamTarget.infoHash}
                     infoHash={streamTarget.infoHash}
                     name={streamTarget.name}
                     initialFileIdx={streamTarget.fileIdx}

@@ -76,6 +76,15 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
     const initialTimeRef = useRef<number | undefined>(initialTime);
 
     useEffect(() => { setMounted(true); }, []);
+
+    // Stop & purge an ephemeral (Quick Watch) stream when the player closes OR
+    // switches to a different title — otherwise the previous movie keeps streaming.
+    useEffect(() => {
+        if (!ephemeral) return;
+        return () => {
+            try { fetch(`${API_BASE}/api/stream-stop/${infoHash}`, { method: "POST", keepalive: true }); } catch { /* best effort */ }
+        };
+    }, [infoHash, ephemeral]);
     // Switching file resets transcode/subtitle/timeline state.
     useEffect(() => {
         setTranscode(false); setSubTrack(null); setSubs([]); setSubsOpen(false);
@@ -212,12 +221,7 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
     };
 
     const handleClose = () => {
-        if (ephemeral) {
-            // Stop the stream and delete its temp files server-side.
-            try { fetch(`${API_BASE}/api/stream-stop/${infoHash}`, { method: "POST", keepalive: true }); } catch { /* best effort */ }
-        } else {
-            persist(true);
-        }
+        if (!ephemeral) persist(true); // ephemeral stop/purge happens on unmount (effect above)
         onClose();
     };
 

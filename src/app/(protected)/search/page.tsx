@@ -987,6 +987,14 @@ export default function SearchPage() {
                 </div>
             ) : sorted.length > 0 ? (
                 <>
+                    {/* Format note */}
+                    <div className="flex items-start gap-2.5 rounded-xl border border-warning/15 bg-warning/[0.06] px-4 py-2.5 text-[12px] text-text-2">
+                        <svg className="w-4 h-4 text-warning shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 8h.01M11 12h1v4h1" /></svg>
+                        <span>
+                            Some files (<span className="text-text-1 font-medium">MKV · x265 / HEVC · 10-bit</span>) may not <span className="text-text-1">Quick&nbsp;Watch</span> or <span className="text-text-1">Stream</span> smoothly in the browser — they can show audio-only or stutter. For the best picture, <span className="text-text-1 font-medium">Download</span> them (or use the in-player <span className="text-text-1">convert</span> / <span className="text-text-1">Open in player</span>). <span className="text-text-3">MP4 / x264 releases stream best.</span>
+                        </span>
+                    </div>
+
                     {/* Results Header */}
                     <div className="flex items-center justify-between">
                         <div>
@@ -1498,6 +1506,7 @@ export default function SearchPage() {
 
             {streamTarget && (
                 <StreamPlayer
+                    key={streamTarget.infoHash}
                     infoHash={streamTarget.infoHash}
                     name={streamTarget.name}
                     initialFileIdx={streamTarget.fileIdx}
