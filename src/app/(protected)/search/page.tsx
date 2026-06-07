@@ -3,6 +3,7 @@
 import { useTorrents } from "@/context/TorrentContext";
 import StreamPlayer from "@/components/StreamPlayer";
 import { listContinueWatching, removeProgress, type WatchEntry } from "@/lib/watchProgress";
+import { isAdultTitle, isAdultQuery } from "@/lib/contentFilter";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 
@@ -85,6 +86,114 @@ const INITIAL_CHAT_MESSAGES: ChatMessage[] = [
     }
 ];
 
+interface DiscoverItem { name: string; poster: string; year: string; type: string }
+
+// A single horizontal poster row with click-to-scroll arrows (the carousel had no
+// visible way to scroll). Arrows show only when there's content to scroll to.
+function DiscoverRow({ row, onPick }: { row: { key: string; title: string; items: DiscoverItem[] }; onPick: (name: string) => void }) {
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const [edges, setEdges] = useState({ left: false, right: false });
+
+    const update = useCallback(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        setEdges({
+            left: el.scrollLeft > 8,
+            right: el.scrollLeft + el.clientWidth < el.scrollWidth - 8,
+        });
+    }, []);
+
+    useEffect(() => {
+        update();
+        window.addEventListener("resize", update);
+        return () => window.removeEventListener("resize", update);
+    }, [update, row.items.length]);
+
+    // Custom eased glide (native smooth + scroll-snap were fighting each other and
+    // making the arrow click jump). Animate scrollLeft ourselves for a smooth feel.
+    const animRef = useRef<number | null>(null);
+    const scrollByDir = (dir: number) => {
+        const el = scrollRef.current;
+        if (!el) return;
+        if (animRef.current) cancelAnimationFrame(animRef.current);
+        const start = el.scrollLeft;
+        const target = Math.max(0, Math.min(start + dir * el.clientWidth * 0.85, el.scrollWidth - el.clientWidth));
+        const dist = target - start;
+        if (dist === 0) return;
+        const duration = 480;
+        const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2); // easeInOutQuad
+        let startTs: number | null = null;
+        const step = (ts: number) => {
+            if (startTs === null) startTs = ts;
+            const p = Math.min((ts - startTs) / duration, 1);
+            el.scrollLeft = start + dist * ease(p);
+            if (p < 1) animRef.current = requestAnimationFrame(step);
+            else animRef.current = null;
+        };
+        animRef.current = requestAnimationFrame(step);
+    };
+    useEffect(() => () => { if (animRef.current) cancelAnimationFrame(animRef.current); }, []);
+
+    const Arrow = ({ dir, enabled }: { dir: number; enabled: boolean }) => (
+        <button
+            type="button"
+            onClick={() => scrollByDir(dir)}
+            disabled={!enabled}
+            aria-label={dir < 0 ? "Scroll left" : "Scroll right"}
+            className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all ${enabled ? "bg-white/[0.05] border-white/15 text-text-1 hover:bg-accent hover:text-black hover:border-accent" : "bg-white/[0.02] border-white/[0.06] text-text-3/40 cursor-not-allowed"}`}
+        >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                {dir < 0 ? <path d="m15 18-6-6 6-6" /> : <path d="m9 18 6-6-6-6" />}
+            </svg>
+        </button>
+    );
+
+    return (
+        <section>
+            <div className="flex items-center justify-between gap-3 mb-3.5">
+                <div className="flex items-baseline gap-2">
+                    <h2 className="text-lg font-black text-text-1">{row.title}</h2>
+                    <span className="text-xs text-text-3">Tap to search</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                    <Arrow dir={-1} enabled={edges.left} />
+                    <Arrow dir={1} enabled={edges.right} />
+                </div>
+            </div>
+            <div className="relative">
+                <div
+                    ref={scrollRef}
+                    onScroll={update}
+                    className="flex gap-4 overflow-x-auto pb-3 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                >
+                    {row.items.map((it, i) => (
+                        <button
+                            key={`${row.key}-${i}`}
+                            onClick={() => onPick(it.name)}
+                            className="group shrink-0 w-[132px] sm:w-[148px] text-left"
+                            title={`Search "${it.name}"`}
+                        >
+                            <div className="relative aspect-[2/3] rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.03] shadow-cinema transition-all duration-300 group-hover:scale-[1.04] group-hover:border-accent/40 group-hover:shadow-cinema-lg">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={it.poster} alt={it.name} loading="lazy" className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                <div className="absolute bottom-2 left-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-accent">
+                                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+                                        Search
+                                    </span>
+                                </div>
+                            </div>
+                            <p className="mt-2 text-[13px] font-medium text-text-1 leading-tight line-clamp-2 min-h-[2.3rem] group-hover:text-accent transition-colors">{it.name}</p>
+                            {it.year && <p className="text-[11px] text-text-3">{it.year}</p>}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </section>
+    );
+}
+
 export default function SearchPage() {
     const {
         searchResults, searchLogs, searchQuery, setSearchQuery,
@@ -105,6 +214,8 @@ export default function SearchPage() {
     const [quickId, setQuickId] = useState<number | null>(null);
     const [streamTarget, setStreamTarget] = useState<{ infoHash: string; name: string; fileIdx?: number; time?: number; ephemeral?: boolean } | null>(null);
     const [continueList, setContinueList] = useState<WatchEntry[]>([]);
+    const [blockedQuery, setBlockedQuery] = useState<string | null>(null);
+    const [discover, setDiscover] = useState<{ key: string; title: string; items: { name: string; poster: string; year: string; type: string }[] }[]>([]);
 
     useEffect(() => { setContinueList(listContinueWatching()); }, []);
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -270,6 +381,15 @@ export default function SearchPage() {
         setSuggestions([]);
         const q = (qOverride || searchQuery).trim();
         if (q) {
+            // Block searches that explicitly target adult content — don't even hit the
+            // providers. Show a notice instead.
+            if (isAdultQuery(q)) {
+                setBlockedQuery(q);
+                setSearchedOnce(true);
+                clearSearch();
+                return;
+            }
+            setBlockedQuery(null);
             // Result ids are array indices that repeat across searches — clear the
             // per-id magnet cache and "added" markers so a new search never reuses a
             // previous result's magnet (which streamed the wrong movie).
@@ -494,8 +614,20 @@ export default function SearchPage() {
         if (!isEngineConnected) setChatOpen(false);
     }, [isEngineConnected]);
 
+    // Load curated discover rows (top movies / shows / anime) for the empty state.
+    useEffect(() => {
+        let cancelled = false;
+        fetch('/api/discover')
+            .then(r => r.ok ? r.json() : { rows: [] })
+            .then(d => { if (!cancelled) setDiscover(d.rows || []); })
+            .catch(() => { });
+        return () => { cancelled = true; };
+    }, []);
+
     const handleClear = () => {
+        posterAbortRef.current?.abort();
         clearSearch();
+        setBlockedQuery(null);
         setSearchedOnce(false);
         setSuggestions([]);
         setShowSuggestions(false);
@@ -666,10 +798,15 @@ export default function SearchPage() {
         return result.provider === providerName;
     }, []);
 
+    // Hide adult/explicit results returned by the providers. Done client-side so it
+    // works with any engine version (incl. the already-shipped exe) and keeps result
+    // ids stable for magnet lookup.
+    const safeResults = useMemo(() => searchResults.filter(r => !isAdultTitle(r.title)), [searchResults]);
+
     // Memoize sorted so deps are stable — prevents poster effect from aborting itself every render
     const sorted = useMemo(() => {
         const qualOpt = QUALITY_OPTIONS.find(q => q.label === qualityFilter) || QUALITY_OPTIONS[0];
-        const base = [...searchResults]
+        const base = [...safeResults]
             .filter(r => qualOpt.test(r.title))
             .sort((a, b) => {
                 if (sortBy === 'Seeders (Most)') return b.seeders - a.seeders;
@@ -679,7 +816,7 @@ export default function SearchPage() {
                 return 0;
             });
         return providerFilter ? base.filter(r => matchesProviderFilter(r, providerFilter)) : base;
-    }, [searchResults, sortBy, providerFilter, qualityFilter, matchesProviderFilter]);
+    }, [safeResults, sortBy, providerFilter, qualityFilter, matchesProviderFilter]);
 
     // Group TV episodes — only when groupMode is on
     interface EpGroup { key: string; showName: string; season: number; episodes: typeof sorted; bestSeeders: number; }
@@ -736,6 +873,7 @@ export default function SearchPage() {
 
     // Fetch posters for TV groups and visible flat items whenever results change
     const fetchingRef = useRef<Set<string>>(new Set());
+    const posterAbortRef = useRef<AbortController | null>(null);
     useEffect(() => {
         if (searchResults.length === 0) {
             setPosters({});
@@ -767,7 +905,10 @@ export default function SearchPage() {
             return next;
         });
 
+        // Abort any still-running batch from a previous search before starting a new one.
+        posterAbortRef.current?.abort();
         const controller = new AbortController();
+        posterAbortRef.current = controller;
         (async () => {
             const batchSize = 6;
             for (let i = 0; i < toFetch.length; i += batchSize) {
@@ -800,13 +941,19 @@ export default function SearchPage() {
             }
         })();
 
-        // Only abort if this specific effect run is cleaned up (results changed drastically)
-        // But we want to keep fetches for stable items.
-        // Actually, if we use fetchingRef, we don't necessarily need to abort previous ones
-        // unless they are for items no longer in the list.
+        // Stop fetching when the results change (new search / cancel / clear). This
+        // prevents the engine from being hammered with stale poster lookups after the
+        // user has moved on.
         return () => {
-            // We don't abort here to allow background fetches to complete
-            // unless search results were cleared.
+            controller.abort();
+            // Release any 'loading' placeholders for items that never resolved so they
+            // can be retried if they reappear.
+            fetchingRef.current.clear();
+            setPosters(prev => {
+                const next = { ...prev };
+                for (const k of Object.keys(next)) if (next[k] === 'loading') delete next[k];
+                return next;
+            });
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [groups, flatItems]);
@@ -859,7 +1006,7 @@ export default function SearchPage() {
                             </button>
                         )}
                         {isSearching ? (
-                            <button type="button" onClick={cancelSearch}
+                            <button type="button" onClick={() => { posterAbortRef.current?.abort(); cancelSearch(); }}
                                 className="my-1.5 rounded-xl bg-danger/15 px-6 py-2.5 text-sm font-semibold text-danger hover:bg-danger/25 transition-all">
                                 Cancel
                             </button>
@@ -908,7 +1055,7 @@ export default function SearchPage() {
                             const isActive = providerFilter === log.name;
                             const isDone = log.status === 'done';
                             const count = isDone
-                                ? searchResults.filter(r => matchesProviderFilter(r, log.name)).length
+                                ? safeResults.filter(r => matchesProviderFilter(r, log.name)).length
                                 : 0;
                             return (
                                 <button
@@ -996,7 +1143,15 @@ export default function SearchPage() {
             )}
 
             {/* Results */}
-            {isSearching && searchResults.length === 0 ? (
+            {blockedQuery ? (
+                <div className="flex flex-col items-center text-center py-16 gap-3">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-warning/10 border border-warning/20">
+                        <svg className="w-7 h-7 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="m4.9 4.9 14.2 14.2" /></svg>
+                    </div>
+                    <p className="text-text-1 font-semibold">Search blocked</p>
+                    <p className="text-text-3 text-sm max-w-md">Explicit / adult content isn&apos;t allowed on Vortex. Try searching for a movie, show, or anime.</p>
+                </div>
+            ) : isSearching && searchResults.length === 0 ? (
                 <div className="flex flex-col items-center py-16 gap-4">
                     <div className="w-10 h-10 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
                     <p className="text-text-3 text-sm">Collating results from {searchLogs.filter(l => l.status === 'done').length} sites...</p>
@@ -1402,6 +1557,12 @@ export default function SearchPage() {
                 <div className="text-center py-20 bg-white/[0.01] rounded-3xl border border-dashed border-white/[0.06]">
                     <svg className="w-10 h-10 mx-auto mb-4 text-text-3/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
                     <p className="text-text-3 font-medium">No results found for &quot;{searchQuery}&quot;</p>
+                </div>
+            ) : discover.length > 0 ? (
+                <div className="flex flex-col gap-9">
+                    {discover.map(row => (
+                        <DiscoverRow key={row.key} row={row} onPick={(name) => { setSearchQuery(name); handleSearch(undefined, name); }} />
+                    ))}
                 </div>
             ) : (
                 <div className="text-center py-32">
