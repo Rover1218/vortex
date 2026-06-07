@@ -270,6 +270,11 @@ export default function SearchPage() {
         setSuggestions([]);
         const q = (qOverride || searchQuery).trim();
         if (q) {
+            // Result ids are array indices that repeat across searches — clear the
+            // per-id magnet cache and "added" markers so a new search never reuses a
+            // previous result's magnet (which streamed the wrong movie).
+            magnetCacheRef.current.clear();
+            setAddedIds(new Set());
             setSearchedOnce(true);
             doSearch(q);
         }
@@ -538,6 +543,15 @@ export default function SearchPage() {
     // Stream a result: ensure the torrent is in the engine (adding is idempotent —
     // the engine returns the existing infoHash for duplicates), then open the
     // player, which polls until the file is ready to play.
+    // Stop the currently-open Quick Watch stream (if any) before opening another,
+    // so switching titles frees the previous movie instead of leaving it streaming.
+    const stopCurrentEphemeral = (nextInfoHash?: string) => {
+        const cur = streamTarget;
+        if (cur?.ephemeral && cur.infoHash && cur.infoHash !== nextInfoHash) {
+            try { fetch(`${API_BASE}/api/stream-stop/${cur.infoHash}`, { method: 'POST', keepalive: true }); } catch { /* best effort */ }
+        }
+    };
+
     const handleStream = async (id: number) => {
         const item = searchResults.find(r => r.id === id);
         if (!item || streamingId === id) return;
@@ -557,6 +571,7 @@ export default function SearchPage() {
             const infoHash = added?.infoHash;
             if (!infoHash) throw new Error('Could not resolve torrent');
             setAddedIds(prev => new Set(prev).add(id));
+            stopCurrentEphemeral(infoHash);
             setStreamTarget({ infoHash, name: item.title });
         } catch (err) {
             console.error('Stream error:', err);
@@ -590,6 +605,7 @@ export default function SearchPage() {
             });
             const data = await res.json();
             if (!data?.infoHash) throw new Error('Could not start stream');
+            stopCurrentEphemeral(data.infoHash);
             setStreamTarget({ infoHash: data.infoHash, name: item.title, ephemeral: true });
         } catch (err) {
             console.error('Quick Watch error:', err);
