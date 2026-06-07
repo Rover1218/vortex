@@ -32,6 +32,10 @@ const flatPosterKey = (title: string) => {
     return `flat:${cleaned || (title || "").toLowerCase().replace(/\s+/g, " ").trim()}`;
 };
 
+// Pull a release year out of a torrent title for poster disambiguation (e.g. two
+// different movies both named "Apex" → match the one with the right year).
+const extractYear = (title: string): string => (title || "").match(/\b(?:19|20)\d{2}\b/)?.[0] || "";
+
 const SORT_OPTIONS = ['Relevance', 'Seeders (Most)', 'Seeders (Least)', 'Size (Largest)', 'Size (Smallest)'];
 const QUALITY_OPTIONS = [
     { label: 'All', test: () => true },
@@ -881,16 +885,16 @@ export default function SearchPage() {
             return;
         }
 
-        const toFetch: { key: string; query: string }[] = [];
+        const toFetch: { key: string; query: string; year: string }[] = [];
         [...groups.values()].forEach(g => {
             if (posters[g.key] === undefined && !fetchingRef.current.has(g.key)) {
-                toFetch.push({ key: g.key, query: g.showName });
+                toFetch.push({ key: g.key, query: g.showName, year: extractYear(g.episodes[0]?.title || '') });
             }
         });
         flatItems.slice(0, 24).forEach(r => {
             const k = flatPosterKey(r.title);
             if (posters[k] === undefined && !fetchingRef.current.has(k)) {
-                toFetch.push({ key: k, query: cleanMovieName(r.title) || r.title });
+                toFetch.push({ key: k, query: cleanMovieName(r.title) || r.title, year: extractYear(r.title) });
             }
         });
 
@@ -911,33 +915,63 @@ export default function SearchPage() {
         posterAbortRef.current = controller;
         (async () => {
             const batchSize = 6;
-            for (let i = 0; i < toFetch.length; i += batchSize) {
-                if (controller.signal.aborted) break;
-                const batch = toFetch.slice(i, i + batchSize);
-                const posterBatchUpdates: Record<string, string | null> = {};
-                await Promise.all(batch.map(async ({ key, query }) => {
-                    try {
-                        const r = await fetch(`${API_BASE}/api/poster?q=${encodeURIComponent(query)}`, { signal: controller.signal });
-                        const data = await r.json();
-                        posterBatchUpdates[key] = data?.poster ?? null;
-                    } catch {
-                        if (!controller.signal.aborted) posterBatchUpdates[key] = null;
-                    } finally {
-                        fetchingRef.current.delete(key);
-                    }
-                }));
-                if (Object.keys(posterBatchUpdates).length > 0) {
-                    setPosters(prev => {
-                        const next = { ...prev };
-                        for (const [k, v] of Object.entries(posterBatchUpdates)) {
-                            // Don't overwrite an already-resolved poster with a late null.
-                            if (v === null && typeof prev[k] === 'string' && prev[k]) continue;
-                            next[k] = v;
+            // Items Cinemeta couldn't resolve — retried against the engine afterwards.
+            const missed: { key: string; query: string; year: string }[] = [];
+
+            const runBatches = async (
+                items: { key: string; query: string; year: string }[],
+                url: (q: string, year: string) => string,
+                onMiss?: (item: { key: string; query: string; year: string }) => void,
+            ) => {
+                for (let i = 0; i < items.length; i += batchSize) {
+                    if (controller.signal.aborted) break;
+                    const batch = items.slice(i, i + batchSize);
+                    const posterBatchUpdates: Record<string, string | null> = {};
+                    await Promise.all(batch.map(async (item) => {
+                        const { key, query, year } = item;
+                        try {
+                            const r = await fetch(url(query, year), { signal: controller.signal });
+                            const data = await r.json();
+                            const poster = data?.poster ?? null;
+                            posterBatchUpdates[key] = poster;
+                            if (poster === null && onMiss) onMiss(item);
+                        } catch {
+                            if (!controller.signal.aborted) { posterBatchUpdates[key] = null; if (onMiss) onMiss(item); }
+                        } finally {
+                            fetchingRef.current.delete(key);
                         }
-                        return next;
-                    });
+                    }));
+                    if (Object.keys(posterBatchUpdates).length > 0) {
+                        setPosters(prev => {
+                            const next = { ...prev };
+                            for (const [k, v] of Object.entries(posterBatchUpdates)) {
+                                // Never overwrite an already-resolved poster with a null/blank.
+                                if (v === null && typeof prev[k] === 'string' && prev[k]) continue;
+                                next[k] = v;
+                            }
+                            return next;
+                        });
+                    }
+                    if (items.length > batchSize && !controller.signal.aborted) await new Promise(res => setTimeout(res, 100));
                 }
-                if (toFetch.length > batchSize && !controller.signal.aborted) await new Promise(res => setTimeout(res, 100));
+            };
+
+            // Pass 1 — Cinemeta (fast, edge-cached). Collect the blanks.
+            await runBatches(
+                toFetch,
+                (q, year) => `/api/poster?q=${encodeURIComponent(q)}${year ? `&year=${year}` : ''}`,
+                (item) => missed.push(item),
+            );
+
+            // Pass 2 — fall back to the engine ONLY for the blanks Cinemeta missed. The
+            // engine has extra sources (AniList/Kitsu/TVmaze/Wikipedia) so it can fill
+            // some of them. It writes only when a poster is found, so it can never
+            // override a Cinemeta hit — no conflict.
+            if (!controller.signal.aborted && missed.length > 0) {
+                await runBatches(
+                    missed,
+                    (q, year) => `${API_BASE}/api/poster?q=${encodeURIComponent(q)}${year ? `&year=${year}` : ''}`,
+                );
             }
         })();
 
@@ -1171,8 +1205,22 @@ export default function SearchPage() {
                         <div>
                             <h2 className="text-xl font-black text-text-1">Results</h2>
                             <p className="text-xs text-text-3 mt-0.5">
-                                {sorted.length} {providerFilter ? <><span className="text-teal font-semibold">{providerFilter}</span> results</> : 'torrents found'}
-                                {groups.size > 0 && <span className="ml-2 text-accent/60">· {groups.size} show{groups.size !== 1 ? 's' : ''} grouped</span>}
+                                {(() => {
+                                    const shownEpisodes = [...groups.values()].reduce((s, g) => s + g.episodes.length, 0);
+                                    const shown = flatItems.length + shownEpisodes;     // distinct rows you can actually pick
+                                    const merged = sorted.length - shown;                // alternate-quality dupes hidden by grouping
+                                    if (providerFilter) {
+                                        return <><span className="text-text-1 font-medium">{sorted.length}</span> <span className="text-teal font-semibold">{providerFilter}</span> results</>;
+                                    }
+                                    if (groups.size > 0 && merged > 0) {
+                                        return <>
+                                            <span className="text-text-1 font-medium">{shown}</span> shown
+                                            <span className="ml-2 text-accent/60">· {groups.size} show{groups.size !== 1 ? 's' : ''} grouped</span>
+                                            <span className="ml-2 text-text-3">· {merged} duplicate qualit{merged !== 1 ? 'ies' : 'y'} merged from {sorted.length} torrents — turn off Group series to see all</span>
+                                        </>;
+                                    }
+                                    return <><span className="text-text-1 font-medium">{sorted.length}</span> torrents found{groups.size > 0 && <span className="ml-2 text-accent/60">· {groups.size} show{groups.size !== 1 ? 's' : ''} grouped</span>}</>;
+                                })()}
                             </p>
                         </div>
 
