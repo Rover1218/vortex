@@ -4,6 +4,8 @@ import { useTorrents } from "@/context/TorrentContext";
 import RatioCoach from "@/components/RatioCoach";
 import StreamPlayer from "@/components/StreamPlayer";
 import { listContinueWatching, removeProgress, removeProgressByInfoHash, type WatchEntry } from "@/lib/watchProgress";
+import ContinueWatching from "@/components/ContinueWatching";
+import PosterThumb from "@/components/PosterThumb";
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import axios from "axios";
 
@@ -366,45 +368,11 @@ export default function DownloadsPage() {
 
             {/* Continue Watching */}
             {continueList.length > 0 && (
-                <div className="rounded-2xl border border-white/[0.06] bg-surface p-4 shadow-cinema">
-                    <div className="flex items-center gap-2 mb-3">
-                        <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-                        <h2 className="text-sm font-bold text-text-1">Continue Watching</h2>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {continueList.slice(0, 6).map((e) => {
-                            const pct = e.dur > 0 ? Math.min(100, Math.round((e.t / e.dur) * 100)) : 0;
-                            return (
-                                <div
-                                    key={`${e.infoHash}:${e.fileIdx}`}
-                                    onClick={() => setStreamTarget({ infoHash: e.infoHash, name: e.title, fileIdx: e.fileIdx, time: e.t })}
-                                    className="relative text-left rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:border-accent/30 transition-all p-3 group cursor-pointer"
-                                >
-                                    <button
-                                        onClick={(ev) => { ev.stopPropagation(); removeProgress(e.infoHash, e.fileIdx); setContinueList(listContinueWatching()); }}
-                                        title="Remove from Continue Watching"
-                                        className="absolute top-2 right-2 w-6 h-6 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-white/[0.1] opacity-0 group-hover:opacity-100 transition-all z-10"
-                                    >
-                                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
-                                    </button>
-                                    <div className="flex items-center gap-2 mb-2 pr-6">
-                                        <span className="w-7 h-7 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0 group-hover:bg-accent group-hover:text-black transition-colors">
-                                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7V5z" /></svg>
-                                        </span>
-                                        <div className="min-w-0">
-                                            <div className="text-[12px] font-semibold text-text-1 truncate">{e.title}</div>
-                                            <div className="text-[10px] text-text-3 truncate">{e.name}</div>
-                                        </div>
-                                    </div>
-                                    <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
-                                        <div className="h-full bg-accent rounded-full" style={{ width: `${pct}%` }} />
-                                    </div>
-                                    <div className="mt-1 text-[10px] text-text-3 font-mono">{pct}% watched · resume</div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
+                <ContinueWatching
+                    entries={continueList}
+                    onPlay={(e) => setStreamTarget({ infoHash: e.infoHash, name: e.title, fileIdx: e.fileIdx, time: e.t })}
+                    onRemove={(e) => { removeProgress(e.infoHash, e.fileIdx); setContinueList(listContinueWatching()); }}
+                />
             )}
 
             {/* Ratio Coach */}
@@ -430,7 +398,8 @@ export default function DownloadsPage() {
                                     <div className={`h-full ${barFill} transition-all duration-700`} style={{ width: `${Math.min(progress, 100)}%` }} />
                                 </div>
                                 <div className="p-5">
-                                    <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-4">
+                                        <PosterThumb title={t.name} className="w-12 aspect-[2/3]" />
                                         <div className="space-y-2 min-w-0 flex-1">
                                             <div className="flex items-center gap-3">
                                                 <span className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${isCompleted ? "bg-teal/10 text-teal border border-teal/20" : isSeeding ? "bg-teal/10 text-teal border border-teal/20" : isPaused ? "bg-warning/10 text-warning border border-warning/20" : "bg-accent/10 text-accent border border-accent/20"}`}>{t.status}</span>

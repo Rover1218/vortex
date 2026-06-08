@@ -68,6 +68,7 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
     const [curTime, setCurTime] = useState(0);       // video.currentTime within current segment
     const [playing, setPlaying] = useState(true);
     const [muted, setMuted] = useState(false);
+    const [volume, setVolume] = useState(1);
     const [scrub, setScrub] = useState<number | null>(null);
 
     const cancelledRef = useRef(false);
@@ -235,9 +236,21 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
         onClose();
     };
 
-    // Close on Escape.
+    // Keyboard shortcuts: Space = play/pause · ←/→ = seek 5s · F = fullscreen · M = mute · Esc = close.
     useEffect(() => {
-        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
+        const onKey = (e: KeyboardEvent) => {
+            const tag = (e.target as HTMLElement | null)?.tagName;
+            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return; // don't hijack typing
+            switch (e.key) {
+                case "Escape": handleClose(); break;
+                case " ": case "Spacebar": e.preventDefault(); togglePlay(); break;
+                case "ArrowLeft": e.preventDefault(); nudge(-5); break;
+                case "ArrowRight": e.preventDefault(); nudge(5); break;
+                case "f": case "F": e.preventDefault(); toggleFullscreen(); break;
+                case "m": case "M": toggleMute(); break;
+                default: break;
+            }
+        };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     });
@@ -255,9 +268,12 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
     const onLoadedMetadata = () => {
         const v = videoRef.current;
         if (!v) return;
-        if (!transcode && !resumeAppliedRef.current && resumeRef.current > 0 && resumeRef.current < (v.duration || Infinity)) {
-            v.currentTime = resumeRef.current;
-            resumeAppliedRef.current = true;
+        if (!transcode) {
+            if (v.duration && isFinite(v.duration)) setDuration(v.duration);
+            if (!resumeAppliedRef.current && resumeRef.current > 0 && resumeRef.current < (v.duration || Infinity)) {
+                v.currentTime = resumeRef.current;
+                resumeAppliedRef.current = true;
+            }
         }
     };
 
@@ -271,6 +287,16 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
         lastSaveRef.current = 0; // allow immediate save at new spot
     };
     const skip = (delta: number) => seekTo(absTime + delta);
+    // Relative seek for keyboard shortcuts. In transcode mode native currentTime seeking
+    // doesn't work on the live ffmpeg stream, so reuse skip() (reloads from a new offset)
+    // — same mechanism as the −10s/+30s buttons. In normal mode, seek natively.
+    const nudge = (delta: number) => {
+        if (transcode) { skip(delta); return; }
+        const v = videoRef.current;
+        if (!v) return;
+        const dur = v.duration && isFinite(v.duration) ? v.duration : Infinity;
+        v.currentTime = Math.max(0, Math.min(dur, (v.currentTime || 0) + delta));
+    };
     const toggleFullscreen = () => {
         const el = stageRef.current;
         if (!el) return;
@@ -381,13 +407,14 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
                                 ref={videoRef}
                                 key={`${selectedIdx ?? "default"}-${transcode ? `t${Math.floor(baseOffset)}` : "d"}-a${audioSel ?? "def"}`}
                                 src={videoSrc}
-                                controls={!transcode}
+                                controls={false}
                                 autoPlay
                                 crossOrigin="anonymous"
                                 controlsList="nodownload noremoteplayback"
                                 onContextMenu={(e) => e.preventDefault()}
+                                onClick={togglePlay}
                                 onLoadedMetadata={onLoadedMetadata}
-                                onTimeUpdate={() => { const v = videoRef.current; if (v) { if (transcode) setCurTime(v.currentTime || 0); persist(); } }}
+                                onTimeUpdate={() => { const v = videoRef.current; if (v) { setCurTime(v.currentTime || 0); persist(); } }}
                                 onPlay={() => setPlaying(true)}
                                 onPause={() => { setPlaying(false); persist(true); }}
                                 className="w-full max-h-[72vh] block"
@@ -427,6 +454,52 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
                                                     : <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" /></svg>}
                                             </button>
                                             <button onClick={toggleFullscreen} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center" title="Fullscreen">
+                                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" /></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Custom controls for normal (direct) playback. */}
+                            {!transcode && (
+                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pt-10 pb-3">
+                                    <input
+                                        type="range" min={0} max={duration || 0} step="any"
+                                        value={Math.min(curTime, duration || curTime)}
+                                        onChange={(e) => { const v = videoRef.current; const val = Number(e.target.value); if (v) { v.currentTime = val; setCurTime(val); } }}
+                                        disabled={!duration}
+                                        style={{ accentColor: "#f5a623" }}
+                                        className="w-full h-1.5 cursor-pointer disabled:opacity-40"
+                                    />
+                                    <div className="flex items-center gap-3 mt-2 text-text-1">
+                                        <button onClick={togglePlay} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center" title={playing ? "Pause (space)" : "Play (space)"}>
+                                            {playing
+                                                ? <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+                                                : <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7V5z" /></svg>}
+                                        </button>
+                                        <button onClick={() => nudge(-5)} className="px-2 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-semibold" title="Back 5s (←)">−5s</button>
+                                        <button onClick={() => nudge(5)} className="px-2 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-semibold" title="Forward 5s (→)">+5s</button>
+                                        <span className="text-[12px] font-mono text-text-2">
+                                            {fmtTime(curTime)} {duration ? `/ ${fmtTime(duration)}` : ""}
+                                        </span>
+                                        <div className="ml-auto flex items-center gap-2">
+                                            <div className="flex items-center gap-1.5">
+                                                <button onClick={toggleMute} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center" title={muted ? "Unmute (m)" : "Mute (m)"}>
+                                                    {muted
+                                                        ? <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6" /></svg>
+                                                        : <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" /></svg>}
+                                                </button>
+                                                <input
+                                                    type="range" min={0} max={1} step={0.05}
+                                                    value={muted ? 0 : volume}
+                                                    onChange={(e) => { const v = videoRef.current; const val = Number(e.target.value); if (v) { v.volume = val; v.muted = val === 0; setVolume(val); setMuted(val === 0); } }}
+                                                    style={{ accentColor: "#f5a623" }}
+                                                    className="w-16 h-1 cursor-pointer"
+                                                    title="Volume"
+                                                />
+                                            </div>
+                                            <button onClick={toggleFullscreen} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center" title="Fullscreen (f)">
                                                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" /></svg>
                                             </button>
                                         </div>

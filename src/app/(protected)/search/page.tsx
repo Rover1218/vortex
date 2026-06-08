@@ -4,6 +4,7 @@ import { useTorrents } from "@/context/TorrentContext";
 import StreamPlayer from "@/components/StreamPlayer";
 import { listContinueWatching, removeProgress, type WatchEntry } from "@/lib/watchProgress";
 import { isAdultTitle, isAdultQuery } from "@/lib/contentFilter";
+import ContinueWatching from "@/components/ContinueWatching";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 
@@ -1159,45 +1160,11 @@ export default function SearchPage() {
 
             {/* Continue Watching — shown on the home/initial view, hidden while browsing results */}
             {continueList.length > 0 && !isSearching && sorted.length === 0 && (
-                <div className="rounded-2xl border border-white/[0.06] bg-surface p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                        <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-                        <h2 className="text-sm font-bold text-text-1">Continue Watching</h2>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {continueList.slice(0, 6).map((e) => {
-                            const pct = e.dur > 0 ? Math.min(100, Math.round((e.t / e.dur) * 100)) : 0;
-                            return (
-                                <div
-                                    key={`${e.infoHash}:${e.fileIdx}`}
-                                    onClick={() => setStreamTarget({ infoHash: e.infoHash, name: e.title, fileIdx: e.fileIdx, time: e.t })}
-                                    className="relative text-left rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:border-accent/30 transition-all p-3 group cursor-pointer"
-                                >
-                                    <button
-                                        onClick={(ev) => { ev.stopPropagation(); removeProgress(e.infoHash, e.fileIdx); setContinueList(listContinueWatching()); }}
-                                        title="Remove from Continue Watching"
-                                        className="absolute top-2 right-2 w-6 h-6 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-white/[0.1] opacity-0 group-hover:opacity-100 transition-all z-10"
-                                    >
-                                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
-                                    </button>
-                                    <div className="flex items-center gap-2 mb-2 pr-6">
-                                        <span className="w-7 h-7 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0 group-hover:bg-accent group-hover:text-black transition-colors">
-                                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7V5z" /></svg>
-                                        </span>
-                                        <div className="min-w-0">
-                                            <div className="text-[12px] font-semibold text-text-1 truncate">{e.title}</div>
-                                            <div className="text-[10px] text-text-3 truncate">{e.name}</div>
-                                        </div>
-                                    </div>
-                                    <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
-                                        <div className="h-full bg-accent rounded-full" style={{ width: `${pct}%` }} />
-                                    </div>
-                                    <div className="mt-1 text-[10px] text-text-3 font-mono">{pct}% watched · resume</div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
+                <ContinueWatching
+                    entries={continueList}
+                    onPlay={(e) => setStreamTarget({ infoHash: e.infoHash, name: e.title, fileIdx: e.fileIdx, time: e.t })}
+                    onRemove={(e) => { removeProgress(e.infoHash, e.fileIdx); setContinueList(listContinueWatching()); }}
+                />
             )}
 
             {/* Results */}

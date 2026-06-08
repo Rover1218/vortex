@@ -26,25 +26,31 @@ async function cinemetaSearch(type: "movie" | "series", q: string): Promise<Meta
     } catch { return []; }
 }
 
-// Pick the meta whose name best matches the query; require some overlap so we never
-// return a confidently-wrong poster (blank placeholder beats wrong art). When a year
-// is supplied, an exact year match adds a bonus — this disambiguates same-named
-// titles (two "Apex" movies) and rescues garbled multi-word titles.
+// Choose the best poster. Cinemeta's search already ranks by relevance and resolves
+// romaji/alias titles (e.g. "Natsu e no Tunnel…" → the English movie), so we TRUST its
+// ordering and only override it for a confident exact-name or year-confirmed match.
+// (Loose substring matching used to mis-fire — e.g. a romaji query containing the word
+// "Sayonara" grabbing an unrelated title literally named "Sayonara".)
 function pickBest(metas: Meta[], q: string, year: string): Meta | null {
+    const withPoster = metas.filter(m => m.poster && m.name);
+    if (withPoster.length === 0) return null;
     const nq = norm(q);
-    let best: Meta | null = null, bestScore = -1;
-    for (const m of metas) {
-        if (!m.poster || !m.name) continue;
-        const nn = norm(m.name);
-        let score = -1;
-        if (nn === nq) score = 10;
-        else if (nn.startsWith(nq) || nq.startsWith(nn)) score = 6;
-        else if (nn.includes(nq) || nq.includes(nn)) score = 4;
-        if (score < 0) continue; // no name overlap — never pick on year alone
-        if (year && String(m.releaseInfo || "").slice(0, 4) === year) score += 3;
-        if (score > bestScore) { bestScore = score; best = m; }
+
+    // 1. Exact (normalized) name match — wins from any position.
+    const exact = withPoster.find(m => norm(m.name || "") === nq);
+    if (exact) return exact;
+
+    // 2. Year-confirmed overlap (disambiguates same-named titles, e.g. two "Apex").
+    if (year) {
+        const ym = withPoster.find(m => {
+            const nn = norm(m.name || "");
+            return String(m.releaseInfo || "").slice(0, 4) === year && (nn.includes(nq) || nq.includes(nn));
+        });
+        if (ym) return ym;
     }
-    return best;
+
+    // 3. Otherwise trust Cinemeta's top-ranked result.
+    return withPoster[0];
 }
 
 export async function GET(req: Request) {
