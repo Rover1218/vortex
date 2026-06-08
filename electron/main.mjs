@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, Tray, Menu, nativeImage, dialog } from "electron";
+import { app, BrowserWindow, shell, Tray, Menu, nativeImage, dialog, ipcMain } from "electron";
 import { spawn, spawnSync } from "child_process";
 import net from "net";
 import path from "path";
@@ -23,6 +23,16 @@ let mainWindow = null;
 let tray = null;
 let engineRestartEnabled = true;  // set false on intentional quit
 let engineRestartCount = 0;
+let autoUpdaterRef = null;        // set in setupAutoUpdate(); used by the manual IPC check
+
+// Forward an update lifecycle event to the desktop UI (ui.html), if it's open.
+function sendUpdateStatus(data) {
+    try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('updater:status', data);
+        }
+    } catch { /* window may be gone */ }
+}
 
 // Auto-Start is configured inside whenReady() below
 
@@ -255,6 +265,10 @@ function createDesktopUiWindow(engineReady) {
         webPreferences: {
             // Hardened: the renderer (ui.html) is pure DOM + XHR with no Node usage,
             // so the secure defaults apply cleanly. nodeIntegration stays off.
+            // preload.cjs exposes a minimal IPC bridge (update check) via contextBridge.
+            preload: app.isPackaged
+                ? path.join(process.resourcesPath, 'app.asar', 'electron', 'preload.cjs')
+                : path.join(__dirname, 'preload.cjs'),
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: true,
@@ -288,6 +302,7 @@ function createDesktopUiWindow(engineReady) {
         engineReady: engineReady,
         dashboardUrl: DASHBOARD_URL,
         enginePort: ENGINE_PORT,
+        appVersion: app.getVersion(),
     };
 
     mainWindow.loadFile(uiPath, { query: { vortexConfig: JSON.stringify(config) } })
@@ -428,8 +443,21 @@ async function setupAutoUpdate() {
     try {
         const mod = await import('electron-updater');
         const autoUpdater = (mod.default || mod).autoUpdater;
+        autoUpdaterRef = autoUpdater; // expose for the manual IPC check
         autoUpdater.autoDownload = true;
         autoUpdater.autoInstallOnAppQuit = true; // installs on next quit if user defers
+        // Full downloads only — differential (delta) downloads silently corrupt and
+        // fail when the cached base installer doesn't byte-match the released one,
+        // leaving the app stuck on the old version with no visible error.
+        autoUpdater.disableDifferentialDownload = true;
+
+        // Forward update lifecycle to the desktop UI so the "Check for Updates"
+        // button can show live status.
+        autoUpdater.on('checking-for-update', () => sendUpdateStatus({ state: 'checking' }));
+        autoUpdater.on('update-available', (info) => sendUpdateStatus({ state: 'available', version: info?.version }));
+        autoUpdater.on('update-not-available', () => sendUpdateStatus({ state: 'latest' }));
+        autoUpdater.on('download-progress', (p) => sendUpdateStatus({ state: 'downloading', percent: p?.percent }));
+        autoUpdater.on('update-downloaded', (info) => sendUpdateStatus({ state: 'downloaded', version: info?.version }));
 
         autoUpdater.on('update-downloaded', async (info) => {
             try {
@@ -449,7 +477,10 @@ async function setupAutoUpdate() {
                 }
             } catch { /* ignore */ }
         });
-        autoUpdater.on('error', (err) => console.error('[AutoUpdate] error:', err?.message || err));
+        autoUpdater.on('error', (err) => {
+            console.error('[AutoUpdate] error:', err?.message || err);
+            sendUpdateStatus({ state: 'error', message: err?.message || String(err) });
+        });
 
         autoUpdater.checkForUpdates().catch(() => { });
         // Re-check every 6h for long-running sessions.
@@ -480,6 +511,17 @@ app.whenReady().then(async () => {
     await createWindow();
 
     setupAutoUpdate(); // check for app updates in the background (packaged only)
+
+    // Manual "Check for Updates" trigger from the desktop UI button.
+    ipcMain.handle('updater:check', async () => {
+        if (!app.isPackaged || !autoUpdaterRef) return { state: 'unavailable' };
+        try {
+            await autoUpdaterRef.checkForUpdates();
+            return { state: 'checking' };
+        } catch (e) {
+            return { state: 'error', message: e?.message || String(e) };
+        }
+    });
 
     app.on('activate', () => {
         // macOS: re-open window if dock icon clicked with no windows

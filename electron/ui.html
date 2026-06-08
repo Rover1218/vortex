@@ -62,6 +62,14 @@
       a.btn:hover { transform: translateY(-2px); }
       .primary { color: #09090b; background: linear-gradient(135deg, var(--amber), var(--amber2)); box-shadow: 0 16px 34px -12px rgba(245,166,35,.65); }
       .primary:hover { filter: brightness(1.06); }
+      .ghost { color: #f7f6f3; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); }
+      .ghost:hover { transform: translateY(-2px); filter: brightness(1.12); }
+      .ghost:disabled { opacity: .5; cursor: default; transform: none; filter: none; }
+      .ghost svg { transition: transform .5s ease; }
+      .ghost.spin svg { animation: rot 1s linear infinite; }
+      @keyframes rot { to { transform: rotate(360deg); } }
+      .ustat { align-self: center; font-size: 12.5px; color: rgba(247,246,243,.6); font-weight: 600; }
+      .vchip { font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; background: rgba(245,166,35,.12); border: 1px solid rgba(245,166,35,.25); color: var(--amber2); vertical-align: middle; margin-left: 8px; }
 
       /* Stat tiles */
       .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
@@ -105,7 +113,7 @@
         <div class="brand">
           <div class="logo">V</div>
           <div>
-            <div class="name">VORTEX</div>
+            <div class="name">VORTEX <span class="vchip" id="app-version">v—</span></div>
             <div class="tag">Desktop Engine</div>
           </div>
         </div>
@@ -131,6 +139,11 @@
               Open Dashboard
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg>
             </a>
+            <button class="btn ghost" id="update-btn" type="button">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              Check for Updates
+            </button>
+            <span class="ustat" id="update-status"></span>
           </div>
         </div>
       </section>
@@ -153,6 +166,7 @@
 
       <footer class="foot">
         <span id="footer-port">Engine port —</span>
+        <span id="footer-version">Engine v—</span>
         <span>Desktop shell · engine runs hidden</span>
       </footer>
     </main>
@@ -163,6 +177,7 @@
       var VORTEX_ENGINE_READY = false;
       var VORTEX_DASHBOARD_URL = '';
       var VORTEX_ENGINE_PORT = 3001;
+      var VORTEX_APP_VERSION = '';
 
       function applyConfig() {
         var dotClass = VORTEX_ENGINE_READY ? 'dot-teal' : 'dot-amber';
@@ -175,6 +190,7 @@
         document.getElementById('eyebrow-label').textContent = eyebrowText;
         document.getElementById('dashboard-link').href = VORTEX_DASHBOARD_URL;
         document.getElementById('footer-port').textContent = 'Engine port ' + VORTEX_ENGINE_PORT;
+        document.getElementById('app-version').textContent = 'v' + (VORTEX_APP_VERSION || '?');
       }
 
       function formatBytes(bytes) {
@@ -214,6 +230,7 @@
             document.getElementById('status-speed').textContent = formatSpeed(data.totalDownloadSpeed || 0) + ' ↓  ' + formatSpeed(data.totalUploadSpeed || 0) + ' ↑';
             document.getElementById('status-path').title = data.downloadPath || 'Not set';
             document.getElementById('status-path').textContent = data.downloadPath || 'Not set';
+            if (data.engineVersion) document.getElementById('footer-version').textContent = 'Engine v' + data.engineVersion;
             var downloadsEl = document.getElementById('status-downloads');
             if (!downloadsEl) return;
             var items = Array.isArray(data.topDownloads) ? data.topDownloads : [];
@@ -249,10 +266,73 @@
           VORTEX_ENGINE_READY = config.engineReady;
           VORTEX_DASHBOARD_URL = config.dashboardUrl;
           VORTEX_ENGINE_PORT = config.enginePort;
+          VORTEX_APP_VERSION = config.appVersion || '';
         }
         applyConfig();
         loadStatus();
         setInterval(loadStatus, 3000);
+        setupUpdater();
+      }
+
+      // ── Manual update check (wired to the main process via preload bridge) ──
+      function setUpdateStatus(text) {
+        var el = document.getElementById('update-status');
+        if (el) el.textContent = text || '';
+      }
+
+      function renderUpdateState(s) {
+        var btn = document.getElementById('update-btn');
+        if (!s) return;
+        switch (s.state) {
+          case 'checking':
+            if (btn) { btn.disabled = true; btn.classList.add('spin'); }
+            setUpdateStatus('Checking for updates…');
+            break;
+          case 'available':
+            setUpdateStatus('Update v' + (s.version || '') + ' found — downloading…');
+            break;
+          case 'downloading':
+            setUpdateStatus('Downloading ' + Math.round(s.percent || 0) + '%…');
+            break;
+          case 'downloaded':
+            if (btn) { btn.disabled = false; btn.classList.remove('spin'); }
+            setUpdateStatus('Update v' + (s.version || '') + ' ready — restart to install.');
+            break;
+          case 'latest':
+            if (btn) { btn.disabled = false; btn.classList.remove('spin'); }
+            setUpdateStatus("You're on the latest version.");
+            break;
+          case 'unavailable':
+            if (btn) { btn.disabled = false; btn.classList.remove('spin'); }
+            setUpdateStatus('Updates apply to the installed app only.');
+            break;
+          case 'error':
+            if (btn) { btn.disabled = false; btn.classList.remove('spin'); }
+            setUpdateStatus('Update error: ' + (s.message || 'unknown'));
+            break;
+        }
+      }
+
+      function setupUpdater() {
+        var btn = document.getElementById('update-btn');
+        if (!btn) return;
+        // No bridge (e.g. running outside the packaged shell) — hide the button.
+        if (!window.vortexDesktop || typeof window.vortexDesktop.checkForUpdates !== 'function') {
+          btn.style.display = 'none';
+          return;
+        }
+        window.vortexDesktop.onUpdateStatus(renderUpdateState);
+        btn.addEventListener('click', function() {
+          btn.disabled = true;
+          btn.classList.add('spin');
+          setUpdateStatus('Checking for updates…');
+          window.vortexDesktop.checkForUpdates().then(function(res) {
+            // 'checking' just confirms the check started; further updates arrive via events.
+            if (res && res.state && res.state !== 'checking') renderUpdateState(res);
+          }).catch(function(e) {
+            renderUpdateState({ state: 'error', message: (e && e.message) || String(e) });
+          });
+        });
       }
 
       (function init() {
