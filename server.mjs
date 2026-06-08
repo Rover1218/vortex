@@ -31,7 +31,7 @@ const parseTorrent = pt.default || pt;
 
 const WebTorrentModule = WebTorrentImport.default || WebTorrentImport;
 
-const VERSION = "0.1.7";
+const VERSION = "0.1.8";
 // For testing locally, it will try localhost:3000 if the Vercel site is not deployed with the proxy yet.
 let PROXY_URL = 'https://vortex-movies.vercel.app/api/sync';
 
@@ -126,6 +126,31 @@ async function startServer() {
 
     // Initialize Socket.IO (deferred for pkg compatibility)
     initializeSocketIO();
+
+    // ─── Private Network Access (PNA) preflight ──────────────────────────────
+    // Chrome blocks requests from a public origin (the hosted dashboard) to the
+    // loopback address space — "Permission was denied for this request to access
+    // the `loopback` address space" — unless the preflight response carries
+    // `Access-Control-Allow-Private-Network: true`. Neither the express `cors`
+    // middleware nor Socket.IO's built-in CORS emit this header, so without it
+    // EVERY request (socket.io polling AND the REST API) is blocked and the
+    // dashboard shows "engine offline" even though the engine is running.
+    //
+    // Socket.IO/engine.io takes over the server's "request" event for its own
+    // path and handles those preflights itself, so we can't add this via express
+    // middleware alone. Instead we wrap the http server's request listeners and
+    // stamp the header on every PNA preflight before delegating — covering both
+    // the socket.io path and the express routes in one place.
+    {
+        const existingListeners = server.listeners('request').slice();
+        server.removeAllListeners('request');
+        server.on('request', (req, res) => {
+            if (req.method === 'OPTIONS' && req.headers['access-control-request-private-network'] && isAllowedOrigin(req.headers.origin)) {
+                res.setHeader('Access-Control-Allow-Private-Network', 'true');
+            }
+            for (const listener of existingListeners) listener.call(server, req, res);
+        });
+    }
 
     app.use(cors(corsOptions));
     app.use(express.json());
