@@ -295,12 +295,26 @@ export default function DownloadsPage() {
 
     return (
         <div className="w-full max-w-full space-y-6 pb-10 relative isolate overflow-x-hidden">
+            {/* Ambient glow */}
+            <div className="pointer-events-none absolute -top-24 left-1/3 h-64 w-[50%] rounded-full bg-accent/8 blur-[120px]" aria-hidden />
+
             {/* Header */}
-            <div className="relative z-10 flex items-end justify-between rounded-2xl border border-white/[0.06] bg-surface px-6 py-5 shadow-cinema">
-                <div>
-                    <h1 className="cine-title text-4xl font-black tracking-tight mb-1 text-text-1">Downloads</h1>
-                    <p className="text-text-3 text-sm">{torrents.length} {torrents.length === 1 ? "task" : "tasks"} currently tracked</p>
+            <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 cine-card px-6 py-5">
+                <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent/12 text-accent ring-1 ring-accent/25">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6"><path d="M12 3v12M8 11l4 4 4-4M5 21h14" /></svg>
+                    </div>
+                    <div>
+                        <h1 className="cine-title text-3xl sm:text-4xl font-black tracking-tight text-text-1">Downloads</h1>
+                        <p className="text-text-3 text-sm mt-0.5">{torrents.length} {torrents.length === 1 ? "task" : "tasks"} currently tracked</p>
+                    </div>
                 </div>
+                {torrents.some(t => t.status === "Downloading" || t.status === "Seeding") && (
+                    <div className="flex items-center gap-4 text-[12px] font-mono">
+                        <span className="flex items-center gap-1.5 text-teal"><IconDown /><span className="font-black">{formatSpeed(totalDownloadSpeed)}</span></span>
+                        <span className="flex items-center gap-1.5 text-accent"><IconUp /><span className="font-black">{formatSpeed(totalUploadSpeed)}</span></span>
+                    </div>
+                )}
             </div>
 
             {/* Speed sparkline + disk usage */}

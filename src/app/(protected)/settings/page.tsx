@@ -68,12 +68,19 @@ export default function SettingsPage() {
     }
 
     return (
-        <div className="max-w-6xl mx-auto space-y-5 pb-6 relative perf-auto">
+        <div className="max-w-6xl mx-auto space-y-5 pb-6 relative perf-auto isolate">
+            {/* Ambient glow */}
+            <div className="pointer-events-none absolute -top-24 left-1/3 h-64 w-[50%] rounded-full bg-accent/8 blur-[120px]" aria-hidden />
 
-            <div className="relative z-10 flex items-center justify-between cine-card bg-elevated px-6 py-5 shadow-cinema">
-                <div>
-                    <h1 className="text-3xl font-black tracking-tight text-text-1 mb-1">Settings</h1>
-                    <p className="text-text-3 text-sm">Configure your Vortex client</p>
+            <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 cine-card px-6 py-5">
+                <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent/12 text-accent ring-1 ring-accent/25">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" /></svg>
+                    </div>
+                    <div>
+                        <h1 className="cine-title text-3xl sm:text-4xl font-black tracking-tight text-text-1">Settings</h1>
+                        <p className="text-text-3 text-sm mt-0.5">Configure your Vortex client</p>
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-3">

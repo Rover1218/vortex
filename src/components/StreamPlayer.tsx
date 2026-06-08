@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getProgress, saveProgress } from "@/lib/watchProgress";
+import { useTorrents } from "@/context/TorrentContext";
 
 const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || "http://localhost:3001";
 
@@ -43,7 +44,9 @@ function fmtTime(s: number) {
 }
 
 export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, initialTime, ephemeral }: StreamPlayerProps) {
+    const { torrents } = useTorrents();
     const [phase, setPhase] = useState<Phase>("loading");
+    const [source, setSource] = useState<string>("");
     const [files, setFiles] = useState<VideoFile[]>([]);
     const [selectedIdx, setSelectedIdx] = useState<number | null>(initialFileIdx ?? null);
     const [errorMsg, setErrorMsg] = useState<string>("");
@@ -102,6 +105,7 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
                     setFiles(info.files);
                     setSelectedIdx(prev => (prev == null ? (info.defaultIdx ?? 0) : prev));
                     setTranscodeAvailable(!!info.transcodeAvailable);
+                    setSource(info.source || "");
                     setPhase("ready");
                     return;
                 }
@@ -182,6 +186,16 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
     }, [subTrack, phase, selectedIdx, transcode, baseOffset, audioSel]);
 
     const selected = files.find(f => f.idx === selectedIdx) || null;
+
+    // CC (embedded subs read from the file) and "Open in player" (launches the local
+    // file in VLC) only work once the movie is FULLY on disk. While Stream is still
+    // downloading — or in ephemeral Quick Watch — the file isn't complete, so hide them.
+    const liveTorrent = torrents.find(t => t.infoHash === infoHash);
+    const fileReady = !ephemeral && (
+        source === "disk" ||
+        (!!liveTorrent && (liveTorrent.status === "Completed" || liveTorrent.status === "Seeding" || parseFloat(liveTorrent.progress) >= 100))
+    );
+
     const q = selectedIdx != null ? `?fileIdx=${selectedIdx}` : "";
     const streamUrl = `${API_BASE}/api/stream/${infoHash}${q}`;
     const isH264 = /h264|avc/i.test(videoCodec);
@@ -299,7 +313,7 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
                                 )}
                             </div>
                         )}
-                        {phase === "ready" && (
+                        {phase === "ready" && fileReady && (
                             <div className="relative">
                                 <button
                                     onClick={() => setSubsOpen(o => !o)}
@@ -321,10 +335,12 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
                                 )}
                             </div>
                         )}
-                        <button onClick={openInPlayer} className="flex items-center gap-1.5 px-3 h-8 rounded-lg bg-white/[0.05] text-text-2 hover:text-text-1 hover:bg-white/[0.12] border border-white/[0.08] text-xs font-semibold transition-all" title="Open this file in your default player (e.g. VLC)">
-                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
-                            Open in player
-                        </button>
+                        {fileReady && (
+                            <button onClick={openInPlayer} className="flex items-center gap-1.5 px-3 h-8 rounded-lg bg-white/[0.05] text-text-2 hover:text-text-1 hover:bg-white/[0.12] border border-white/[0.08] text-xs font-semibold transition-all" title="Open this file in your default player (e.g. VLC)">
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+                                Open in player
+                            </button>
+                        )}
                         <button onClick={handleClose} className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/[0.05] text-text-3 hover:text-text-1 hover:bg-white/[0.12] border border-white/[0.08] transition-all" title="Close (Esc)">✕</button>
                     </div>
                 </div>

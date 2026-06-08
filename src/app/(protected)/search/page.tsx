@@ -1091,51 +1091,65 @@ export default function SearchPage() {
                 </div>
             </div>
 
-            {/* Search Progress Logs — clickable to filter by provider */}
+            {/* Sources — clickable to filter results by provider */}
             {searchLogs.length > 0 && (
-                <div className="relative z-10 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 sm:p-4">
-                    <div className="flex flex-wrap gap-2">
+                <div className="relative z-10 rounded-2xl border border-white/[0.06] bg-surface px-4 py-3.5">
+                    <div className="flex items-center gap-x-2.5 gap-y-2 flex-wrap">
+                        <span className="mr-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-text-3">
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2M4 7h16M4 7l1.5 12a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1L20 7M9 11h6" /></svg>
+                            Sources
+                        </span>
                         {searchLogs.map((log: any) => {
                             const isActive = providerFilter === log.name;
                             const isDone = log.status === 'done';
-                            const count = isDone
-                                ? safeResults.filter(r => matchesProviderFilter(r, log.name)).length
-                                : 0;
+                            const count = isDone ? safeResults.filter(r => matchesProviderFilter(r, log.name)).length : 0;
+                            const clickable = isDone && count > 0;
+                            const empty = isDone && count === 0;
+
+                            // Status dot color
+                            const dot = isActive ? 'bg-black/60'
+                                : log.status === 'searching' ? 'bg-accent animate-pulse'
+                                    : log.status === 'error' ? 'bg-danger'
+                                        : empty ? 'bg-text-3/40'
+                                            : 'bg-teal';
+
                             return (
                                 <button
                                     key={log.name}
-                                    onClick={() => isDone ? setProviderFilter(isActive ? null : log.name) : undefined}
-                                    disabled={!isDone}
-                                    className={`px-4 py-2.5 rounded-xl border text-[11px] font-bold transition-all flex items-center gap-2
-                                    ${isDone
-                                            ? isActive
-                                                ? 'bg-teal/20 border-teal/40 text-teal ring-1 ring-teal/30 scale-[1.03] shadow-[0_8px_24px_-14px_rgba(0,232,176,0.9)]'
-                                                : 'bg-teal/10 border-teal/20 text-teal hover:bg-teal/20 hover:scale-[1.02] cursor-pointer'
-                                            : log.status === 'searching'
-                                                ? 'bg-accent/10 border-accent/20 text-accent animate-pulse-glow cursor-default'
-                                                : log.status === 'error'
-                                                    ? 'bg-red-500/10 border-red-500/20 text-red-400 cursor-default opacity-70'
-                                                    : 'bg-white/[0.02] border-white/[0.04] text-text-3 opacity-40 cursor-default'
+                                    onClick={() => clickable && setProviderFilter(isActive ? null : log.name)}
+                                    disabled={!clickable}
+                                    title={log.status === 'error' ? log.message : clickable ? (isActive ? 'Clear filter' : `Show only ${log.name}`) : undefined}
+                                    className={`group inline-flex items-center gap-2 rounded-full border pl-2.5 pr-2 py-1.5 text-[11px] font-bold transition-all
+                                    ${isActive
+                                            ? 'bg-accent border-accent text-black shadow-accent-glow'
+                                            : clickable
+                                                ? 'bg-white/[0.03] border-white/[0.08] text-text-2 hover:text-text-1 hover:border-accent/40 hover:bg-white/[0.05] cursor-pointer'
+                                                : log.status === 'searching'
+                                                    ? 'bg-accent/[0.07] border-accent/20 text-accent cursor-default'
+                                                    : log.status === 'error'
+                                                        ? 'bg-danger/[0.06] border-danger/20 text-danger/80 cursor-default'
+                                                        : 'bg-transparent border-white/[0.05] text-text-3/50 cursor-default'
                                         }`}
                                 >
-                                    <span className="uppercase tracking-widest">{log.name}</span>
+                                    <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+                                    <span className="uppercase tracking-wider">{log.name}</span>
                                     {isDone ? (
-                                        <span className={`font-mono px-1.5 py-0.5 rounded-md text-[10px] ${isActive ? 'bg-teal/20' : 'bg-white/[0.06]'}`}>
-                                            {isActive ? `${count}` : `${count} res`}
+                                        <span className={`min-w-[20px] text-center rounded-full px-1.5 py-0.5 text-[10px] font-mono ${isActive ? 'bg-black/15 text-black' : empty ? 'bg-white/[0.04] text-text-3/60' : 'bg-white/[0.06] text-text-2'}`}>
+                                            {count}
                                         </span>
                                     ) : log.status === 'searching' ? (
-                                        <span className="opacity-60">...</span>
+                                        <svg className="w-3 h-3 animate-spin opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 1 1-6.2-8.5" strokeLinecap="round" /></svg>
                                     ) : log.status === 'error' ? (
-                                        <span title={log.message} className="opacity-60">✗</span>
+                                        <span className="opacity-70">✕</span>
                                     ) : null}
-                                    {isActive && <span className="text-[9px] opacity-60">✕</span>}
+                                    {isActive && <span className="text-[10px] leading-none opacity-70 group-hover:opacity-100">✕</span>}
                                 </button>
                             );
                         })}
                         {providerFilter && (
                             <button
                                 onClick={() => setProviderFilter(null)}
-                                className="px-3 py-2.5 rounded-xl border border-white/[0.06] text-[11px] text-text-3 hover:text-text-1 hover:bg-white/[0.05] transition-all">
+                                className="ml-auto rounded-full border border-white/[0.08] px-3 py-1.5 text-[11px] font-semibold text-text-3 hover:text-text-1 hover:bg-white/[0.05] transition-all">
                                 Show all
                             </button>
                         )}

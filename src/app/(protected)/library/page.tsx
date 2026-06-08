@@ -349,17 +349,25 @@ export default function LibraryPage() {
     }, [library, sep]);
 
     return (
-        <div className="w-full max-w-full space-y-8 pb-10 relative overflow-x-hidden isolate">
+        <div className="w-full max-w-full space-y-6 pb-10 relative overflow-x-hidden isolate">
+            {/* Ambient glow */}
+            <div className="pointer-events-none absolute -top-24 left-1/3 h-64 w-[50%] rounded-full bg-teal/8 blur-[120px]" aria-hidden />
+
             {/* Header */}
-            <div className="relative z-10 flex items-end justify-between rounded-2xl border border-white/[0.06] bg-surface px-6 py-5 shadow-cinema">
-                <div>
-                    <h1 className="cine-title text-4xl font-black tracking-tight mb-1 text-text-1">Library</h1>
-                    <p className="text-text-3 text-sm">
-                        {loading ? "Loading…" : `${topLevel.length} items · ${formatSize(totalSize)}`}
-                        {settings?.downloadPath && (
-                            <span className="ml-2 text-text-3">→ {settings.downloadPath}</span>
-                        )}
-                    </p>
+            <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 cine-card px-6 py-5">
+                <div className="flex items-center gap-4 min-w-0">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-teal/12 text-teal ring-1 ring-teal/25">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6"><rect x="3" y="3" width="7" height="18" rx="1.5" /><rect x="12" y="3" width="4" height="18" rx="1.5" /><path d="m18 5 3 1-3 14-2-0.5" /></svg>
+                    </div>
+                    <div className="min-w-0">
+                        <h1 className="cine-title text-3xl sm:text-4xl font-black tracking-tight text-text-1">Library</h1>
+                        <p className="text-text-3 text-sm mt-0.5 truncate">
+                            {loading ? "Loading…" : `${topLevel.length} items · ${formatSize(totalSize)}`}
+                            {settings?.downloadPath && (
+                                <span className="ml-2 text-text-3">→ {settings.downloadPath}</span>
+                            )}
+                        </p>
+                    </div>
                 </div>
                 <div className="flex items-center gap-2">
                     <button onClick={() => setViewMode("grid")}
@@ -384,17 +392,32 @@ export default function LibraryPage() {
             {!loading && topLevel.length > 0 && (
                 <div className="space-y-3">
                     <div className="grid grid-cols-3 gap-3">
-                        <div className="rounded-2xl bg-surface border border-white/[0.06] p-4">
-                            <div className="text-[10px] font-bold text-text-3 uppercase tracking-widest mb-1">Total Files</div>
-                            <div className="text-2xl font-black text-text-1">{library.filter(i => !i.isDir).length}</div>
+                        <div className="cine-card flex items-center gap-3.5 p-4">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.04] border border-white/[0.06] text-text-2">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" /><path d="M14 3v5h5" /></svg>
+                            </div>
+                            <div>
+                                <div className="text-[10px] font-bold text-text-3 uppercase tracking-widest">Total Files</div>
+                                <div className="text-2xl font-black text-text-1">{library.filter(i => !i.isDir).length}</div>
+                            </div>
                         </div>
-                        <div className="rounded-2xl bg-surface border border-white/[0.06] p-4">
-                            <div className="text-[10px] font-bold text-accent uppercase tracking-widest mb-1">Videos</div>
-                            <div className="text-2xl font-black text-text-1">{videoCount}</div>
+                        <div className="cine-card flex items-center gap-3.5 p-4">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 border border-accent/15 text-accent">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M10 9l5 3-5 3V9Z" /></svg>
+                            </div>
+                            <div>
+                                <div className="text-[10px] font-bold text-accent uppercase tracking-widest">Videos</div>
+                                <div className="text-2xl font-black text-text-1">{videoCount}</div>
+                            </div>
                         </div>
-                        <div className="rounded-2xl bg-surface border border-white/[0.06] p-4">
-                            <div className="text-[10px] font-bold text-text-3 uppercase tracking-widest mb-1">Total Size</div>
-                            <div className="text-2xl font-black text-text-1">{formatSize(totalSize)}</div>
+                        <div className="cine-card flex items-center gap-3.5 p-4">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal/10 border border-teal/15 text-teal">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M3 8l9-4 9 4-9 4-9-4Z" /><path d="M3 8v8l9 4 9-4V8" /></svg>
+                            </div>
+                            <div>
+                                <div className="text-[10px] font-bold text-text-3 uppercase tracking-widest">Total Size</div>
+                                <div className="text-2xl font-black text-text-1">{formatSize(totalSize)}</div>
+                            </div>
                         </div>
                     </div>
                     {diskInfo && diskInfo.total > 0 && (() => {
