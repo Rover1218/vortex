@@ -70,8 +70,10 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
     const [muted, setMuted] = useState(false);
     const [volume, setVolume] = useState(1);
     const [scrub, setScrub] = useState<number | null>(null);
+    const [controlsVisible, setControlsVisible] = useState(true);
 
     const cancelledRef = useRef(false);
+    const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const stageRef = useRef<HTMLDivElement>(null);
     const lastSaveRef = useRef(0);
@@ -80,6 +82,13 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
     const initialTimeRef = useRef<number | undefined>(initialTime);
 
     useEffect(() => { setMounted(true); }, []);
+    // Show controls when paused; start the auto-hide countdown when playing.
+    useEffect(() => {
+        if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+        if (!playing) { setControlsVisible(true); return; }
+        hideTimerRef.current = setTimeout(() => setControlsVisible(false), 3000);
+        return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
+    }, [playing]);
     // Switching file resets transcode/subtitle/timeline state.
     useEffect(() => {
         setTranscode(false); setSubTrack(null); setSubs([]); setSubsOpen(false);
@@ -305,6 +314,15 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
     };
     const toggleMute = () => { const v = videoRef.current; if (!v) return; v.muted = !v.muted; setMuted(v.muted); };
 
+    // Auto-hide controls (and the cursor) after a few seconds of mouse inactivity
+    // while playing — needed for fullscreen, where the bar otherwise sits over the
+    // video forever. Any pointer movement brings them back; paused always shows them.
+    const revealControls = () => {
+        setControlsVisible(true);
+        if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+        if (playing) hideTimerRef.current = setTimeout(() => setControlsVisible(false), 3000);
+    };
+
     if (!mounted) return null;
 
     return createPortal(
@@ -402,7 +420,14 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
 
                 {phase === "ready" && (
                     <div className="flex flex-col md:flex-row">
-                        <div ref={stageRef} className="player-stage relative w-full min-w-0 md:flex-1 bg-black">
+                        <div
+                            ref={stageRef}
+                            onMouseMove={revealControls}
+                            onMouseLeave={() => { if (playing) setControlsVisible(false); }}
+                            onTouchStart={revealControls}
+                            style={{ cursor: controlsVisible ? undefined : "none" }}
+                            className="player-stage relative w-full min-w-0 md:flex-1 bg-black"
+                        >
                             <video
                                 ref={videoRef}
                                 key={`${selectedIdx ?? "default"}-${transcode ? `t${Math.floor(baseOffset)}` : "d"}-a${audioSel ?? "def"}`}
@@ -425,7 +450,7 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
 
                             {/* Custom controls for transcode mode (native seek can't work on a live stream) */}
                             {transcode && (
-                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-3 pt-8 pb-3">
+                                <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-3 pt-8 pb-3 transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
                                     <input
                                         type="range" min={0} max={duration || 0} step={1}
                                         value={scrub ?? Math.min(absTime, duration || absTime)}
@@ -463,7 +488,7 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
 
                             {/* Custom controls for normal (direct) playback. */}
                             {!transcode && (
-                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pt-10 pb-3">
+                                <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pt-10 pb-3 transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
                                     <input
                                         type="range" min={0} max={duration || 0} step="any"
                                         value={Math.min(curTime, duration || curTime)}
