@@ -228,8 +228,10 @@ export default function LibraryPage() {
         const sep = library.some(i => i.path.includes("\\")) ? "\\" : "/";
         const folderPaths = new Set(library.filter(i => i.isDir).map(i => i.path));
         return library.filter(item => {
-            if (item.isDir) return true;
             const parentDir = item.path.substring(0, item.path.lastIndexOf(sep));
+            // Hide anything nested inside another library folder — BOTH files and
+            // subfolders — so a multi-folder torrent (e.g. a "Complete Series" pack)
+            // shows only its top-level folder, not every internal subfolder as a card.
             return !folderPaths.has(parentDir);
         });
     }, [library]);
@@ -529,7 +531,7 @@ export default function LibraryPage() {
                     )}
                 </div>
             ) : viewMode === "grid" ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                     {filtered.map((item, idx) => {
                         const dlStatus = getTorrentStatus(item.name);
                         return (

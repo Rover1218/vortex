@@ -97,7 +97,8 @@ export default function SettingsPage() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                <div className="space-y-4">
                 {/* Download Location */}
                 <section className={panelClassName}>
                     <div className="px-6 py-4 border-b border-white/[0.06] flex items-center gap-3">
@@ -160,7 +161,9 @@ export default function SettingsPage() {
                         </div>
                     </div>
                 </section>
+                </div>
 
+                <div className="space-y-4">
                 {/* Subtitles */}
                 <section className={panelClassName}>
                     <div className="px-6 py-4 border-b border-white/[0.06] flex items-center gap-3">
@@ -264,6 +267,7 @@ export default function SettingsPage() {
                         </div>
                     </div>
                 </section>
+                </div>
             </div>
 
 
