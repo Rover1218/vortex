@@ -29,6 +29,9 @@ const Icon = {
   Logout: (p: IconProps) => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={p.className}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
   ),
+  Guide: (p: IconProps) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={p.className}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
+  ),
 };
 
 const NAV_ITEMS = [
@@ -38,6 +41,7 @@ const NAV_ITEMS = [
   { label: "Library", href: "/library", icon: Icon.Film },
   { label: "Leaderboard", href: "/leaderboard", icon: Icon.Trophy },
   { label: "Settings", href: "/settings", icon: Icon.Settings },
+  { label: "Guide", href: "/guide", icon: Icon.Guide },
 ];
 
 export default function Sidebar() {
@@ -111,48 +115,51 @@ export default function Sidebar() {
           })}
         </nav>
 
-        {/* Live speed indicator */}
-        {(totalDownloadSpeed > 0 || totalUploadSpeed > 0) && (
-          <div className="p-3 rounded-xl border border-accent/15 bg-accent/[0.06]">
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-teal animate-pulse-glow" />
-              <span className="text-[10px] font-bold text-text-3 uppercase tracking-widest">Live</span>
+        {/* Unified stats panel — LIVE (when active) · Totals · Storage in one card */}
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+          {/* Live speed — only while transferring */}
+          {(totalDownloadSpeed > 0 || totalUploadSpeed > 0) && (
+            <div className="px-3.5 py-3 border-b border-white/[0.06] bg-accent/[0.04]">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal animate-pulse-glow" />
+                <span className="text-[10px] font-bold text-text-3 uppercase tracking-widest">Live</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm font-mono font-bold">
+                <span className="text-text-1">↓ {formatSpeed(totalDownloadSpeed)}</span>
+                <span className="text-teal ml-auto">↑ {formatSpeed(totalUploadSpeed)}</span>
+              </div>
             </div>
-            <div className="mt-1.5 space-y-0.5 text-sm font-mono font-bold">
-              {totalDownloadSpeed > 0 && <div className="text-text-1">↓ {formatSpeed(totalDownloadSpeed)}</div>}
-              {totalUploadSpeed > 0 && <div className="text-teal">↑ {formatSpeed(totalUploadSpeed)}</div>}
-            </div>
-          </div>
-        )}
+          )}
 
-        {/* Totals */}
-        <div className="p-3.5 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-          <div className="text-[10px] text-text-3 font-bold uppercase tracking-widest mb-2.5">Totals</div>
-          <div className="space-y-2 text-xs font-mono">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-text-3">Downloaded</span>
-              <span className="text-text-1 font-bold">{formatSize(lifetimeDownloaded, "0 B")}</span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-text-3">Seeded</span>
-              <span className="text-teal font-bold">{formatSize(lifetimeSeeded, "0 B")}</span>
+          {/* Totals */}
+          <div className="px-3.5 py-3">
+            <div className="text-[10px] text-text-3 font-bold uppercase tracking-widest mb-2.5">Totals</div>
+            <div className="space-y-2 text-xs font-mono">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-text-3">Downloaded</span>
+                <span className="text-text-1 font-bold">{formatSize(lifetimeDownloaded, "0 B")}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-text-3">Seeded</span>
+                <span className="text-teal font-bold">{formatSize(lifetimeSeeded, "0 B")}</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Storage */}
-        <div className="p-3.5 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-          <div className="flex items-center justify-between mb-2.5">
-            <span className="text-[10px] text-text-3 font-bold uppercase tracking-widest">Storage</span>
-            <span className="text-[10px] text-text-2 font-mono">{usedPercent}%</span>
+          {/* Storage */}
+          <div className="px-3.5 py-3 border-t border-white/[0.06]">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-[10px] text-text-3 font-bold uppercase tracking-widest">Storage</span>
+              <span className="text-[10px] text-text-2 font-mono">{usedPercent}%</span>
+            </div>
+            <div className="h-1.5 w-full bg-white/[0.06] rounded-full overflow-hidden mb-2">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${usedPercent > 90 ? 'bg-danger' : usedPercent > 70 ? 'bg-warning' : 'bg-accent'}`}
+                style={{ width: `${usedPercent}%` }}
+              />
+            </div>
+            <div className="text-xs text-text-2 font-mono">{usedStr} / {totalStr}</div>
           </div>
-          <div className="h-1.5 w-full bg-white/[0.06] rounded-full overflow-hidden mb-2">
-            <div
-              className={`h-full rounded-full transition-all duration-700 ${usedPercent > 90 ? 'bg-danger' : usedPercent > 70 ? 'bg-warning' : 'bg-accent'}`}
-              style={{ width: `${usedPercent}%` }}
-            />
-          </div>
-          <div className="text-xs text-text-2 font-mono">{usedStr} / {totalStr}</div>
         </div>
       </div>
 
