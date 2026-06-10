@@ -43,6 +43,35 @@ function fmtTime(s: number) {
     return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
 
+/** Cinematic loading spinner — a sweeping gradient arc with a broadcast pulse and a
+ *  play glyph. Shared by the "connecting" and "buffering" states. */
+function CineSpinner({ label }: { label: string }) {
+    const arc = "conic-gradient(from 90deg, rgba(245,166,35,0) 0deg, rgba(45,212,167,0.9) 140deg, #f5a623 250deg, rgba(245,166,35,0) 330deg)";
+    const ringMask = "radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))";
+    return (
+        <div className="flex flex-col items-center justify-center gap-4 text-text-2">
+            <div className="relative h-16 w-16">
+                {/* soft breathing glow */}
+                <div className="absolute inset-0 rounded-full bg-accent/20 blur-xl animate-glow-breathe" />
+                {/* expanding broadcast pulse */}
+                <span className="absolute inset-1 rounded-full border border-accent/30 animate-ping" />
+                {/* sweeping gradient arc */}
+                <div
+                    className="absolute inset-0 rounded-full animate-spin"
+                    style={{ background: arc, WebkitMask: ringMask, mask: ringMask, animationDuration: "1.1s" }}
+                />
+                {/* center play glyph */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <svg className="ml-0.5 h-5 w-5 text-accent drop-shadow" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8 5v14l11-7z" />
+                    </svg>
+                </div>
+            </div>
+            <span className="text-sm font-medium tracking-wide">{label}</span>
+        </div>
+    );
+}
+
 export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, initialTime, ephemeral }: StreamPlayerProps) {
     const { torrents } = useTorrents();
     const [phase, setPhase] = useState<Phase>("loading");
@@ -71,6 +100,9 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
     const [volume, setVolume] = useState(1);
     const [scrub, setScrub] = useState<number | null>(null);
     const [controlsVisible, setControlsVisible] = useState(true);
+    // The <video> still has to buffer / the transcoder still has to emit first frames
+    // after phase flips to "ready" — keep an overlay up until playback actually begins.
+    const [buffering, setBuffering] = useState(true);
 
     const cancelledRef = useRef(false);
     const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -96,6 +128,10 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
         setBaseOffset(0); setCurTime(0); setDuration(0);
         resumeAppliedRef.current = false;
     }, [selectedIdx]);
+
+    // Re-arm the buffering overlay whenever the underlying media (re)loads — a new
+    // file, entering/leaving transcode, a seek (new offset), or an audio-track switch.
+    useEffect(() => { setBuffering(true); }, [selectedIdx, transcode, baseOffset, audioSel]);
 
     // Poll /info until a playable file is found.
     useEffect(() => {
@@ -185,7 +221,13 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
         const html = document.documentElement;
         const prevHtml = html.style.overflow, prevBody = document.body.style.overflow;
         html.style.overflow = "hidden"; document.body.style.overflow = "hidden";
-        return () => { html.style.overflow = prevHtml; document.body.style.overflow = prevBody; };
+        // Pause page-level ambient animations so they don't fight the (often
+        // software-composited) video for CPU while the player is open.
+        html.classList.add("player-open");
+        return () => {
+            html.style.overflow = prevHtml; document.body.style.overflow = prevBody;
+            html.classList.remove("player-open");
+        };
     }, []);
 
     // Toggle subtitle track in place (no remount).
@@ -327,7 +369,7 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
 
     return createPortal(
         <div
-            className="fixed inset-0 z-[300] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4"
+            className="fixed inset-0 z-[300] flex items-center justify-center bg-black p-4"
             onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
         >
             <div className="relative w-full max-w-6xl rounded-2xl overflow-hidden border border-white/[0.08] bg-surface shadow-cinema-lg">
@@ -405,9 +447,8 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
                 )}
 
                 {phase === "loading" && (
-                    <div className="flex flex-col items-center justify-center gap-3 py-20 text-text-2">
-                        <div className="h-8 w-8 rounded-full border-2 border-white/15 border-t-accent animate-spin" />
-                        <span className="text-sm">Preparing stream — connecting to peers…</span>
+                    <div className="flex items-center justify-center py-24">
+                        <CineSpinner label="Preparing stream — connecting to peers…" />
                     </div>
                 )}
 
@@ -426,7 +467,7 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
                             onMouseLeave={() => { if (playing) setControlsVisible(false); }}
                             onTouchStart={revealControls}
                             style={{ cursor: controlsVisible ? undefined : "none" }}
-                            className="player-stage relative w-full min-w-0 md:flex-1 bg-black"
+                            className="player-stage relative flex min-h-[42vh] w-full min-w-0 items-center justify-center bg-black md:min-h-[56vh] md:flex-1"
                         >
                             <video
                                 ref={videoRef}
@@ -439,14 +480,28 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
                                 onContextMenu={(e) => e.preventDefault()}
                                 onClick={togglePlay}
                                 onLoadedMetadata={onLoadedMetadata}
+                                onLoadedData={() => setBuffering(false)}
+                                onCanPlay={() => setBuffering(false)}
+                                onWaiting={() => setBuffering(true)}
+                                onStalled={() => setBuffering(true)}
+                                onError={() => setBuffering(false)}
                                 onTimeUpdate={() => { const v = videoRef.current; if (v) { setCurTime(v.currentTime || 0); persist(); } }}
                                 onPlay={() => setPlaying(true)}
+                                onPlaying={() => { setPlaying(true); setBuffering(false); }}
                                 onPause={() => { setPlaying(false); persist(true); }}
                                 className="w-full max-h-[72vh] block"
                             >
                                 {subUrl && <track kind="subtitles" src={subUrl} srcLang="en" label="Subtitles" default />}
                                 Your browser cannot play this video.
                             </video>
+
+                            {/* Buffering / first-frame overlay — covers the black gap between
+                                "ready" and actual playback (and during seeks/transcode start). */}
+                            {buffering && (
+                                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/45">
+                                    <CineSpinner label={transcode ? "Converting & buffering first frames…" : "Buffering…"} />
+                                </div>
+                            )}
 
                             {/* Custom controls for transcode mode (native seek can't work on a live stream) */}
                             {transcode && (

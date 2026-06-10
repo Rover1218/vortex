@@ -143,6 +143,17 @@ body {
   }
 }
 
+/* While a video player modal is open, pause page-level ambient animations so they
+   don't compete with the (often software-composited) video for CPU. The player's
+   own spinner uses animate-spin / animate-ping / animate-glow-breathe — deliberately
+   NOT listed here, so it keeps animating. */
+.player-open .animate-aurora,
+.player-open .animate-marquee,
+.player-open .animate-float-slow,
+.player-open .animate-spin-slow {
+  animation-play-state: paused !important;
+}
+
 /* Poster aspect helper */
 .poster-ratio {
   aspect-ratio: 2 / 3;
