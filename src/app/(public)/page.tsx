@@ -49,7 +49,7 @@ export default function LandingPage() {
 
   return (
     <MotionConfig reducedMotion="never">
-    <div className="min-h-screen bg-base text-text-1 overflow-x-hidden relative">
+    <div className="min-h-screen bg-base text-text-1 overflow-x-clip relative">
       {/* Scroll progress bar */}
       <motion.div
         className="fixed top-0 left-0 right-0 h-0.5 origin-left z-50 bg-gradient-to-r from-accent via-accent-strong to-teal"

@@ -36,12 +36,18 @@ body {
 }
 
 html {
+  /* `position: relative` so Framer Motion's useScroll({ target }) can measure
+     offsets against the page scroll container without warning that it is static. */
+  position: relative;
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
 
 body {
-  overflow-x: hidden;
+  /* `clip` (not `hidden`) so we still block horizontal overflow without turning
+     <body> into a scroll container — `overflow-x: hidden` would coerce overflow-y
+     to `auto` and break `position: sticky` pinning (e.g. the ScrollScene demo). */
+  overflow-x: clip;
   text-rendering: optimizeLegibility;
 }
 

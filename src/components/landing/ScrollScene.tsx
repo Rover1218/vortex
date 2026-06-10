@@ -3,7 +3,6 @@
 import {
   motion,
   useMotionValueEvent,
-  useReducedMotion,
   useScroll,
   useSpring,
   useTransform,
@@ -153,10 +152,16 @@ function StepSegment({ progress, index, total, title, isStatic }: StepSegmentPro
  * Scroll-scrubbed cinematic scene. The section pins for 200vh while a Canvas 2D
  * "shot" (parallax ridges, drifting light, film grain, scan sweep) scrubs with
  * scroll, framed by minimal player chrome whose buffer/playhead/speed advance
- * in lockstep. With prefers-reduced-motion it renders one static final frame.
+ * in lockstep. It always animates (the static-frame branches remain in place but
+ * are inert) — see the note in the component for why we don't gate on reduced motion.
  */
 export function ScrollScene() {
-  const isStatic = Boolean(useReducedMotion());
+  // This scroll-scrubbed scene always animates, even when the OS "reduce motion"
+  // preference is on. We deliberately do NOT call useReducedMotion(): in this
+  // version of Framer Motion that hook reads the OS setting directly (it ignores
+  // MotionConfig) and also emits the dev-only "Reduced Motion enabled" warning.
+  // Forcing the animated path keeps the demo running and silences that warning.
+  const isStatic = false;
   const trackRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: trackRef, offset: ["start start", "end end"] });
   const progress = useSpring(scrollYProgress, { stiffness: 170, damping: 27, mass: 0.35 });
@@ -174,7 +179,7 @@ export function ScrollScene() {
   return (
     <section className="relative z-10" aria-label="Stream while it downloads — scroll-scrubbed demo">
       <div ref={trackRef} className={isStatic ? "relative" : "relative h-[200vh]"}>
-        <div className={isStatic ? "py-6" : "sticky top-0 flex h-screen flex-col justify-center"}>
+        <div className={isStatic ? "py-6" : "sticky top-0 flex h-svh flex-col justify-center"}>
           <div className="mx-auto w-full max-w-6xl px-6">
             <div className="mb-7 text-center md:mb-9">
               <div className="cine-chip mb-5 border-accent/15 bg-accent/[0.08] px-4 py-1.5 font-bold uppercase tracking-[0.12em] !text-accent">
