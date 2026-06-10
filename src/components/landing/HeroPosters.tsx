@@ -24,8 +24,8 @@ type PosterDef = {
 };
 
 const POSTERS: PosterDef[] = [
-  { src: "/posters/dune.png", className: "left-1/2 -translate-x-[118%] top-[20%]", rot: "-11deg", size: "w-40", z: 10, dim: true, depth: 0.5, delay: -1.5 },
-  { src: "/posters/silo.png", className: "left-1/2 translate-x-[18%] top-[16%]", rot: "11deg", size: "w-40", z: 10, dim: true, depth: 0.7, delay: -3 },
+  { src: "/posters/dune.png", className: "left-1/2 -translate-x-[120%] top-[20%]", rot: "-11deg", size: "w-40", z: 10, dim: true, depth: 0.5, delay: -1.5 },
+  { src: "/posters/silo.png", className: "left-1/2 translate-x-[20%] top-[16%]", rot: "11deg", size: "w-40", z: 10, dim: true, depth: 0.7, delay: -3 },
   { src: "/posters/anime.png", className: "left-1/2 -translate-x-1/2 top-[8%]", rot: "-2deg", size: "w-56", z: 20, big: true, depth: 1, delay: 0 },
 ];
 
@@ -107,18 +107,23 @@ function PosterCard({
   const ty = useTransform(my, (v) => v * poster.depth);
   const combinedY = useTransform([scrollY, ty] as MotionValue<number>[], ([s, t]) => (s as number) * poster.depth + (t as number));
 
+  // Positioning (Tailwind translate) lives on a plain outer div; the parallax
+  // transform lives on an inner motion div. Keeping them on separate elements
+  // stops Framer's `x`/`y` transform from clobbering the `-translate-x` offsets.
   return (
-    <motion.div
-      className={`absolute ${poster.className} ${poster.size}`}
-      style={{ zIndex: poster.z, x: reduceMotion ? 0 : tx, y: reduceMotion ? 0 : combinedY }}
-      initial={{ opacity: 0, y: 60, rotate: 0, scale: 0.9 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.9, delay: 0.2 + index * 0.12, ease: [0.22, 1, 0.36, 1] }}
-    >
-      <div className="animate-float-slow" style={{ ["--rot" as string]: poster.rot, animationDelay: `${poster.delay}s` }}>
-        <PosterArt src={poster.src} big={poster.big} dim={poster.dim} />
-      </div>
-    </motion.div>
+    <div className={`absolute ${poster.className} ${poster.size}`} style={{ zIndex: poster.z }}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.9, delay: 0.2 + index * 0.12, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <motion.div style={{ x: reduceMotion ? 0 : tx, y: reduceMotion ? 0 : combinedY }}>
+          <div className="animate-float-slow" style={{ ["--rot" as string]: poster.rot, animationDelay: `${poster.delay}s` }}>
+            <PosterArt src={poster.src} big={poster.big} dim={poster.dim} />
+          </div>
+        </motion.div>
+      </motion.div>
+    </div>
   );
 }
 
@@ -127,7 +132,7 @@ function PosterArt({ src, big, dim }: { src: string; big?: boolean; dim?: boolea
     <div
       className={`relative rounded-[20px] overflow-hidden poster-ratio border ${
         big ? "ring-1 ring-accent/40 border-white/15" : "border-white/10"
-      } shadow-[0_40px_85px_-28px_rgba(0,0,0,0.92)] ${dim ? "brightness-[0.78]" : ""}`}
+      } shadow-[0_40px_85px_-28px_rgba(0,0,0,0.92)] ${dim ? "brightness-[0.65] saturate-[0.9]" : ""}`}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt="" className="w-full h-full object-cover" />

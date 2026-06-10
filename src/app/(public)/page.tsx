@@ -6,6 +6,8 @@ import { Reveal, RevealGroup, RevealItem } from "@/components/landing/Reveal";
 import { CountUp } from "@/components/landing/CountUp";
 import { HeroPosters } from "@/components/landing/HeroPosters";
 import { ScrollScene } from "@/components/landing/ScrollScene";
+import { SceneShelf } from "@/components/landing/SceneShelf";
+import { ButterflyLoader } from "@/components/landing/ButterflyLoader";
 import { motion, useScroll, useSpring, useMotionValueEvent, MotionConfig } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -25,6 +27,9 @@ export default function LandingPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  // Keep the butterfly loader on screen for a minimum beat so it's enjoyed even
+  // when auth resolves instantly.
+  const [minLoaderDone, setMinLoaderDone] = useState(false);
 
   const { scrollYProgress } = useScroll();
   const progressX = useSpring(scrollYProgress, { stiffness: 140, damping: 30, mass: 0.3 });
@@ -34,16 +39,16 @@ export default function LandingPage() {
   });
 
   useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => setMinLoaderDone(true), 6000);
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => { if (!loading && user) router.push("/search"); }, [user, loading, router]);
 
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
-  if (loading || !mounted) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-base">
-        <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center text-black text-lg font-black animate-pulse">V</div>
-      </div>
-    );
+  if (loading || !mounted || !minLoaderDone) {
+    return <ButterflyLoader />;
   }
   if (user) return null;
 
@@ -211,6 +216,9 @@ export default function LandingPage() {
           </BentoCard>
         </RevealGroup>
       </section>
+
+      {/* Horizontal scroll-scrubbed filmstrip */}
+      <SceneShelf />
 
       {/* How it works */}
       <section id="how-it-works" className="relative z-10 max-w-5xl mx-auto px-6 py-16 scroll-mt-20">

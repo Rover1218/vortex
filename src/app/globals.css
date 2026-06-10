@@ -148,6 +148,13 @@ body {
   aspect-ratio: 2 / 3;
 }
 
+/* Film-grain overlay — procedural SVG noise, no image asset needed. Pair with
+   mix-blend-overlay + low opacity over a dark surface for a cinematic texture. */
+.scene-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
 /* Video player stage — fill the screen properly in fullscreen (override the
    windowed max-h cap so the video isn't letterboxed to 72vh). */
 .player-stage:fullscreen,
@@ -187,6 +194,17 @@ body {
 
 @keyframes glow-breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.85; } }
 .animate-glow-breathe { animation: glow-breathe 5s ease-in-out infinite; }
+
+/* Butterfly loader — wings beat around the body's vertical axis (user-space x=60). */
+@keyframes wing-beat { 0%, 100% { transform: scaleX(1); } 50% { transform: scaleX(0.26); } }
+.bf-wings {
+  transform-box: view-box;
+  transform-origin: 60px 60px;
+  animation: wing-beat 0.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bf-wings { animation: none; }
+}
 
 @keyframes spin-slow { to { transform: rotate(360deg); } }
 .animate-spin-slow { animation: spin-slow 26s linear infinite; }
