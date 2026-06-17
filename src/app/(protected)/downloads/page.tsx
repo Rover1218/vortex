@@ -227,7 +227,10 @@ export default function DownloadsPage() {
         setDrawerActionByPath({});
     };
     const drawerTorrent = torrents.find(t => t.infoHash === drawerHash);
-    const canControlFiles = drawerTorrent?.status === "Downloading";
+    // Allow file toggling while actively downloading, or while the whole torrent
+    // is paused via per-file selection (filePaused) — so a single file can be
+    // resumed from the all-files-paused state.
+    const canControlFiles = drawerTorrent?.status === "Downloading" || drawerTorrent?.filePaused === true;
 
     useEffect(() => {
         if (!drawerHash) return;

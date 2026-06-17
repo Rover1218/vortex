@@ -14,6 +14,9 @@ interface TorrentState {
     timeRemaining: number; downloaded: number; totalLength: number;
     uploaded?: number;
     ratio: number; status: string;
+    // true when the torrent is paused via per-file selection (every file paused)
+    // — it is still live in the client, so individual files can still be resumed.
+    filePaused?: boolean;
 }
 
 interface Settings {

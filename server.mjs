@@ -31,7 +31,7 @@ const parseTorrent = pt.default || pt;
 
 const WebTorrentModule = WebTorrentImport.default || WebTorrentImport;
 
-const VERSION = "0.1.8";
+const VERSION = "0.1.9";
 // For testing locally, it will try localhost:3000 if the Vercel site is not deployed with the proxy yet.
 let PROXY_URL = 'https://vortex-movies.vercel.app/api/sync';
 
@@ -620,14 +620,34 @@ async function startServer() {
         return created;
     }
 
-    function applyPausedFileSelections(torrent) {
-        if (!torrent?.infoHash || !torrent.files?.length) return;
-        const pausedPaths = pausedFilesByHash.get(torrent.infoHash);
-        if (!pausedPaths || pausedPaths.size === 0) return;
+    // Switch a torrent onto WebTorrent's per-file selection model (BEP53).
+    //
+    // By default WebTorrent adds a single whole-torrent selection
+    // (select(0, lastPiece, false) — see node_modules/webtorrent/lib/torrent.js
+    // around the metadata handler). deselect() only removes a selection whose
+    // range AND priority match exactly, so file.deselect() — a sub-range — can
+    // never remove that global selection. The pieces stay "wanted" and a paused
+    // file keeps downloading. That is the pause-doesn't-work bug.
+    //
+    // Fix: once per torrent object, drop the global selection and instead select
+    // each file individually (deselecting any already-paused ones). After this,
+    // per-file pause/resume is just one balanced file.deselect()/file.select().
+    // Guarded by a marker on the torrent so repeated calls can't stack duplicate
+    // selections (a fresh client.add() creates a new object, resetting it).
+    function applyFileSelections(torrent) {
+        if (!torrent || torrent._vortexSelInit) return;
+        if (!torrent.files?.length || !torrent.pieces?.length) return;
+        torrent._vortexSelInit = true;
 
+        // Remove WebTorrent's default whole-torrent selection.
+        try { torrent.deselect(0, torrent.pieces.length - 1, false); } catch { /* ignore */ }
+
+        const pausedPaths = pausedFilesByHash.get(torrent.infoHash) || new Set();
         for (const file of torrent.files) {
-            if (!pausedPaths.has(file.path)) continue;
-            try { file.deselect(); } catch { /* ignore per-file errors */ }
+            try {
+                if (pausedPaths.has(file.path)) file.deselect();
+                else file.select();
+            } catch { /* ignore per-file errors */ }
         }
     }
 
@@ -1335,16 +1355,33 @@ async function startServer() {
         lastLifetimeTickAt = now;
         accumulateLifetimeFromSpeeds(client.downloadSpeed || 0, client.uploadSpeed || 0, elapsedMs);
 
-        const activeTorrents = client.torrents.filter(t => !ephemeralHashes.has(t.infoHash)).map(t => ({
-            uploaded: resolveUploaded(t.downloaded || 0, t.uploaded, t.ratio) || 0,
-            infoHash: t.infoHash,
-            name: t.name || namesMap.get(t.infoHash) || getNameFromMagnet(magnetsByHash.get(t.infoHash)) || 'Loading metadata...',
-            progress: (t.progress * 100).toFixed(2),
-            downloadSpeed: t.downloadSpeed || 0, uploadSpeed: t.uploadSpeed || 0,
-            numPeers: t.numPeers || 0, timeRemaining: t.timeRemaining || 0,
-            downloaded: t.downloaded || 0, totalLength: t.length || 0,
-            ratio: t.ratio || 0, status: t.progress === 1 ? 'Seeding' : 'Downloading'
-        }));
+        const activeTorrents = client.torrents.filter(t => !ephemeralHashes.has(t.infoHash)).map(t => {
+            // A torrent is "file-paused" when every one of its files is paused
+            // (we also call torrent.pause() in that case). Report it as Paused
+            // with zeroed speed/ETA so the UI doesn't show a misleading
+            // "Downloading" badge with a runaway ETA.
+            const pausedSet = pausedFilesByHash.get(t.infoHash);
+            const incompleteFiles = (t.files || []).filter(f => (f.progress || 0) < 1);
+            const allFilesPaused = !!pausedSet && pausedSet.size > 0 &&
+                incompleteFiles.length > 0 && incompleteFiles.every(f => pausedSet.has(f.path));
+            const isFilePaused = (t.paused || allFilesPaused) && t.progress < 1;
+            return {
+                uploaded: resolveUploaded(t.downloaded || 0, t.uploaded, t.ratio) || 0,
+                infoHash: t.infoHash,
+                name: t.name || namesMap.get(t.infoHash) || getNameFromMagnet(magnetsByHash.get(t.infoHash)) || 'Loading metadata...',
+                progress: (t.progress * 100).toFixed(2),
+                downloadSpeed: isFilePaused ? 0 : (t.downloadSpeed || 0),
+                uploadSpeed: isFilePaused ? 0 : (t.uploadSpeed || 0),
+                numPeers: t.numPeers || 0, timeRemaining: isFilePaused ? 0 : (t.timeRemaining || 0),
+                downloaded: t.downloaded || 0, totalLength: t.length || 0,
+                ratio: t.ratio || 0,
+                // filePaused marks a torrent that is paused via per-file selection
+                // (still live in the client, so its files can still be toggled),
+                // as opposed to a torrent-level pause that is removed from the client.
+                filePaused: isFilePaused,
+                status: isFilePaused ? 'Paused' : (t.progress === 1 ? 'Seeding' : 'Downloading')
+            };
+        });
 
         const paused = Array.from(pausedTorrents.entries()).map(([hash, data]) => ({
             infoHash: hash,
@@ -2271,7 +2308,7 @@ async function startServer() {
             torrent.on('metadata', () => {
                 console.log('   ✓ Metadata:', torrent.name);
                 if (torrent.name) namesMap.set(torrent.infoHash, torrent.name);
-                applyPausedFileSelections(torrent);
+                applyFileSelections(torrent);
                 // Update stored magnet with full URI (includes trackers from DHT)
                 if (torrent.infoHash) {
                     magnetsByHash.set(torrent.infoHash, torrent.magnetURI || magnet);
@@ -2420,6 +2457,32 @@ async function startServer() {
     // ─── Resume ───
     app.post('/api/torrents/:infoHash/resume', verifyUser, (req, res) => {
         const hash = req.params.infoHash;
+
+        // Case: the torrent is still in the client but "file-paused" (every file
+        // deselected + torrent.pause()). Resume = re-select all files and unpause,
+        // no re-add needed.
+        const liveTorrent = client.torrents.find(t => (t.infoHash || '') === hash);
+        if (liveTorrent && !pausedTorrents.has(hash)) {
+            const pausedSet = pausedFilesByHash.get(hash);
+            const wasFilePaused = liveTorrent.paused || (pausedSet && pausedSet.size > 0);
+            // Only re-select when it was actually paused — re-selecting an already
+            // active torrent would stack duplicate selections.
+            if (wasFilePaused) {
+                try {
+                    // Re-select only the files that were paused — selecting an
+                    // already-selected file would stack a duplicate selection.
+                    for (const file of (liveTorrent.files || [])) {
+                        if (!pausedSet || pausedSet.has(file.path)) {
+                            try { file.select(); } catch { /* ignore */ }
+                        }
+                    }
+                    pausedFilesByHash.delete(hash);
+                    if (liveTorrent.paused) liveTorrent.resume();
+                } catch { /* ignore */ }
+            }
+            return res.json({ success: true });
+        }
+
         if (pausedTorrents.has(hash)) {
             const data = pausedTorrents.get(hash);
             // Ensure we have a valid magnet — fall back to reconstructing from hash
@@ -2433,7 +2496,7 @@ async function startServer() {
                 torrent.on('metadata', () => {
                     console.log('▶ Resumed:', torrent.name);
                     if (torrent.infoHash) magnetsByHash.set(torrent.infoHash, torrent.magnetURI || magnet);
-                    applyPausedFileSelections(torrent);
+                    applyFileSelections(torrent);
                     saveTorrentList();
                 });
                 saveTorrentList();
@@ -2495,7 +2558,7 @@ async function startServer() {
             torrent.on('metadata', () => {
                 if (torrent.name) namesMap.set(torrent.infoHash, torrent.name);
                 if (torrent.infoHash) magnetsByHash.set(torrent.infoHash, torrent.magnetURI || magnet);
-                applyPausedFileSelections(torrent);
+                applyFileSelections(torrent);
                 saveTorrentList();
             });
             saveTorrentList();
@@ -2982,6 +3045,10 @@ async function startServer() {
         const target = (torrent.files || []).find(f => f.path === filePath);
         if (!target) return res.status(404).json({ error: 'File not found in torrent' });
 
+        // Ensure the torrent is on the per-file selection model before toggling,
+        // otherwise the default whole-torrent selection keeps this file wanted.
+        applyFileSelections(torrent);
+
         const pausedFiles = getPausedFileSet(torrent.infoHash);
         const shouldPause = action === 'pause';
 
@@ -2994,6 +3061,17 @@ async function startServer() {
                 pausedFiles.delete(target.path);
                 if (pausedFiles.size === 0) pausedFilesByHash.delete(torrent.infoHash);
             }
+
+            // When every still-downloading file is paused, pause the whole torrent
+            // so even the residual fast-set/peer trickle stops and the UI reads as
+            // Paused. Completed files don't count — they need no more download. As
+            // soon as one incomplete file is active again, resume the torrent.
+            const incompleteFiles = (torrent.files || []).filter(f => (f.progress || 0) < 1);
+            const allPaused = incompleteFiles.length > 0 && incompleteFiles.every(f => pausedFiles.has(f.path));
+            try {
+                if (allPaused) torrent.pause();
+                else if (torrent.paused) torrent.resume();
+            } catch { /* ignore pause/resume errors */ }
 
             const files = (torrent.files || []).map(f => {
                 const len = f.length || 0;
