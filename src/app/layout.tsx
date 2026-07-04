@@ -29,7 +29,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: the theme script below sets data-theme on <html>
+    // before hydration — the official Next.js pattern for flash-free theming.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var t=localStorage.getItem('vortex-theme');if(t&&t!=='vortex')document.documentElement.setAttribute('data-theme',t)}catch(e){}})()",
+          }}
+        />
+      </head>
       <body
         className={`${dmSans.variable} ${jetBrainsMono.variable} antialiased bg-base text-text-1 min-h-screen`}
       >

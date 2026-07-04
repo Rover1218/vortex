@@ -11,19 +11,20 @@ const config: Config = {
     theme: {
         extend: {
             colors: {
-                // Cinematic dark — true near-black neutrals, warm amber-gold accent.
-                base: "#09090b",
-                surface: "#131316",
-                elevated: "#1c1c21",
+                // Colors come from CSS variables (globals.css) so themes can swap
+                // the whole palette at runtime. Channel form keeps /opacity working.
+                base: "rgb(var(--c-base) / <alpha-value>)",
+                surface: "rgb(var(--c-surface) / <alpha-value>)",
+                elevated: "rgb(var(--c-elevated) / <alpha-value>)",
                 'vortex-border': "#ffffff14",
-                accent: "#f5a623",          // warm amber-gold (brand / primary CTAs)
-                'accent-strong': "#ffc04d", // hover / glow
-                teal: "#2dd4a7",            // success / seeding
-                danger: "#ff5470",
-                warning: "#fbbf24",
-                'text-1': "#f7f6f3",        // warm white
-                'text-2': "#9b9ba6",
-                'text-3': "#60606b",
+                accent: "rgb(var(--c-accent) / <alpha-value>)",
+                'accent-strong': "rgb(var(--c-accent-strong) / <alpha-value>)",
+                teal: "rgb(var(--c-teal) / <alpha-value>)",
+                danger: "rgb(var(--c-danger) / <alpha-value>)",
+                warning: "rgb(var(--c-warning) / <alpha-value>)",
+                'text-1': "rgb(var(--c-text-1) / <alpha-value>)",
+                'text-2': "rgb(var(--c-text-2) / <alpha-value>)",
+                'text-3': "rgb(var(--c-text-3) / <alpha-value>)",
             },
             fontFamily: {
                 sans: ["var(--font-dm-sans)"],
@@ -37,7 +38,7 @@ const config: Config = {
             boxShadow: {
                 'cinema': '0 24px 60px -28px rgba(0,0,0,0.85)',
                 'cinema-lg': '0 40px 120px -40px rgba(0,0,0,0.9)',
-                'accent-glow': '0 14px 40px -16px rgba(245,166,35,0.55)',
+                'accent-glow': '0 14px 40px -16px rgb(var(--c-accent) / 0.55)',
             },
             animation: {
                 shimmer: "shimmer 2s infinite linear",

@@ -3,22 +3,193 @@
 @tailwind utilities;
 
 :root {
-  /* Cinematic dark — true near-black, warm amber-gold accent */
-  --background: #09090b;
-  --foreground: #f7f6f3;
+  /* Theme color channels (R G B) — swapped wholesale by [data-theme] below.
+     Default: "Vortex" — cinematic near-black, warm amber-gold accent. */
+  --c-base: 9 9 11;
+  --c-surface: 19 19 22;
+  --c-elevated: 28 28 33;
+  --c-accent: 245 166 35;
+  --c-accent-strong: 255 192 77;
+  --c-teal: 45 212 167;
+  --c-danger: 255 84 112;
+  --c-warning: 251 191 36;
+  --c-text-1: 247 246 243;
+  --c-text-2: 155 155 166;
+  --c-text-3: 96 96 107;
 
-  --bg-base: #09090b;
-  --bg-surface: #131316;
-  --bg-elevated: #1c1c21;
+  --background: rgb(var(--c-base));
+  --foreground: rgb(var(--c-text-1));
+
+  --bg-base: rgb(var(--c-base));
+  --bg-surface: rgb(var(--c-surface));
+  --bg-elevated: rgb(var(--c-elevated));
   --bg-border: #ffffff14;
-  --accent-primary: #f5a623;
-  --accent-strong: #ffc04d;
-  --accent-secondary: #2dd4a7;
-  --accent-danger: #ff5470;
-  --accent-warning: #fbbf24;
-  --text-primary: #f7f6f3;
-  --text-secondary: #9b9ba6;
-  --text-tertiary: #60606b;
+  --accent-primary: rgb(var(--c-accent));
+  --accent-strong: rgb(var(--c-accent-strong));
+  --accent-secondary: rgb(var(--c-teal));
+  --accent-danger: rgb(var(--c-danger));
+  --accent-warning: rgb(var(--c-warning));
+  --text-primary: rgb(var(--c-text-1));
+  --text-secondary: rgb(var(--c-text-2));
+  --text-tertiary: rgb(var(--c-text-3));
+}
+
+/* ── Themes (all dark variants; picked in Settings → Appearance) ── */
+[data-theme="terminal"] {
+  --c-base: 3 8 4;
+  --c-surface: 7 15 9;
+  --c-elevated: 12 24 14;
+  --c-accent: 51 255 102;
+  --c-accent-strong: 140 255 170;
+  --c-teal: 51 255 102;
+  --c-danger: 255 85 85;
+  --c-warning: 241 250 140;
+  --c-text-1: 208 255 216;
+  --c-text-2: 122 196 136;
+  --c-text-3: 74 122 84;
+}
+[data-theme="terminal"] body {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+[data-theme="synthwave"] {
+  --c-base: 13 4 32;
+  --c-surface: 24 10 52;
+  --c-elevated: 36 18 74;
+  --c-accent: 255 62 180;
+  --c-accent-strong: 255 120 210;
+  --c-teal: 54 226 255;
+  --c-danger: 255 84 112;
+  --c-warning: 250 204 21;
+  --c-text-1: 246 240 255;
+  --c-text-2: 178 160 210;
+  --c-text-3: 118 100 152;
+}
+
+[data-theme="ocean"] {
+  --c-base: 5 11 20;
+  --c-surface: 10 20 34;
+  --c-elevated: 16 30 50;
+  --c-accent: 56 189 248;
+  --c-accent-strong: 125 211 252;
+  --c-teal: 45 212 167;
+  --c-danger: 251 113 133;
+  --c-warning: 251 191 36;
+  --c-text-1: 238 246 255;
+  --c-text-2: 146 168 194;
+  --c-text-3: 90 110 134;
+}
+
+[data-theme="crimson"] {
+  --c-base: 13 6 8;
+  --c-surface: 24 11 15;
+  --c-elevated: 38 18 24;
+  --c-accent: 244 63 94;
+  --c-accent-strong: 251 113 133;
+  --c-teal: 52 211 153;
+  --c-danger: 255 84 112;
+  --c-warning: 251 191 36;
+  --c-text-1: 252 244 246;
+  --c-text-2: 178 152 160;
+  --c-text-3: 116 92 100;
+}
+
+[data-theme="graphite"] {
+  --c-base: 10 10 12;
+  --c-surface: 20 20 24;
+  --c-elevated: 30 30 36;
+  --c-accent: 168 178 194;
+  --c-accent-strong: 210 218 230;
+  --c-teal: 110 231 183;
+  --c-danger: 248 113 113;
+  --c-warning: 250 204 21;
+  --c-text-1: 245 245 248;
+  --c-text-2: 158 158 170;
+  --c-text-3: 100 100 112;
+}
+
+[data-theme="aurora"] {
+  --c-base: 4 13 12;
+  --c-surface: 8 23 21;
+  --c-elevated: 13 35 32;
+  --c-accent: 45 230 168;
+  --c-accent-strong: 128 245 205;
+  --c-teal: 125 211 252;
+  --c-danger: 251 113 133;
+  --c-warning: 253 224 71;
+  --c-text-1: 235 250 244;
+  --c-text-2: 148 190 175;
+  --c-text-3: 88 122 110;
+}
+
+[data-theme="amethyst"] {
+  --c-base: 11 8 20;
+  --c-surface: 20 15 36;
+  --c-elevated: 32 24 54;
+  --c-accent: 167 139 250;
+  --c-accent-strong: 196 181 253;
+  --c-teal: 45 212 167;
+  --c-danger: 251 113 133;
+  --c-warning: 250 204 21;
+  --c-text-1: 245 242 255;
+  --c-text-2: 168 160 195;
+  --c-text-3: 106 98 132;
+}
+
+[data-theme="sakura"] {
+  --c-base: 18 9 13;
+  --c-surface: 30 16 22;
+  --c-elevated: 44 24 33;
+  --c-accent: 249 168 212;
+  --c-accent-strong: 251 207 232;
+  --c-teal: 94 234 212;
+  --c-danger: 244 63 94;
+  --c-warning: 253 186 116;
+  --c-text-1: 253 244 248;
+  --c-text-2: 190 160 172;
+  --c-text-3: 122 96 106;
+}
+
+[data-theme="ember"] {
+  --c-base: 14 8 4;
+  --c-surface: 26 15 8;
+  --c-elevated: 40 23 12;
+  --c-accent: 249 115 22;
+  --c-accent-strong: 251 146 60;
+  --c-teal: 45 212 167;
+  --c-danger: 239 68 68;
+  --c-warning: 250 204 21;
+  --c-text-1: 252 246 240;
+  --c-text-2: 178 158 142;
+  --c-text-3: 115 98 84;
+}
+
+[data-theme="arctic"] {
+  --c-base: 7 11 17;
+  --c-surface: 14 21 31;
+  --c-elevated: 22 32 46;
+  --c-accent: 147 197 253;
+  --c-accent-strong: 191 219 254;
+  --c-teal: 94 234 212;
+  --c-danger: 251 113 133;
+  --c-warning: 253 224 71;
+  --c-text-1: 241 248 255;
+  --c-text-2: 158 176 198;
+  --c-text-3: 98 112 132;
+}
+
+[data-theme="acid"] {
+  --c-base: 9 11 5;
+  --c-surface: 17 20 10;
+  --c-elevated: 26 31 15;
+  --c-accent: 163 230 53;
+  --c-accent-strong: 202 255 112;
+  --c-teal: 52 211 153;
+  --c-danger: 248 113 113;
+  --c-warning: 250 204 21;
+  --c-text-1: 244 250 235;
+  --c-text-2: 170 185 148;
+  --c-text-3: 105 118 88;
 }
 
 * {
@@ -93,11 +264,11 @@ body {
 
 /* Glow Effects (subtle, cinematic — not neon) */
 .glow-accent {
-  box-shadow: 0 0 24px rgba(245, 166, 35, 0.12), 0 0 70px rgba(245, 166, 35, 0.04);
+  box-shadow: 0 0 24px rgb(var(--c-accent) / 0.12), 0 0 70px rgb(var(--c-accent) / 0.04);
 }
 
 .glow-teal {
-  box-shadow: 0 0 24px rgba(45, 212, 167, 0.12), 0 0 70px rgba(45, 212, 167, 0.04);
+  box-shadow: 0 0 24px rgb(var(--c-teal) / 0.12), 0 0 70px rgb(var(--c-teal) / 0.04);
 }
 
 /* ── Cinematic component primitives ───────────────────────────────────────── */

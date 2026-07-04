@@ -4,11 +4,17 @@ import { useTorrents } from "@/context/TorrentContext";
 import { usePremium } from "@/context/PremiumContext";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { THEMES, applyTheme, getStoredTheme, DEFAULT_THEME } from "@/lib/themes";
 
 export default function SettingsPage() {
     const { settings, updateSettings, browseFolders } = useTorrents();
     const { isPremium, isLifetime, premiumUntil, loading: premiumLoading, openLimitModal } = usePremium();
     const forcedSubtitleOff = useRef(false);
+    const [activeTheme, setActiveTheme] = useState(DEFAULT_THEME);
+
+    useEffect(() => {
+        setActiveTheme(getStoredTheme());
+    }, []);
     const [localSettings, setLocalSettings] = useState<any>(null);
     const [dlLimitStr, setDlLimitStr] = useState("");
     const [ulLimitStr, setUlLimitStr] = useState("");
@@ -137,6 +143,44 @@ export default function SettingsPage() {
                     </Link>
                 )}
             </div>
+
+            {/* Appearance */}
+            <section className="relative z-10 cine-card overflow-hidden">
+                <div className="px-6 py-4 border-b border-white/[0.06] flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-accent/10 border border-accent/15 flex items-center justify-center text-accent">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5"><circle cx="13.5" cy="6.5" r="2.5" /><circle cx="19" cy="13" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="10" cy="18.5" r="2.5" /><path d="M12 2a10 10 0 1 0 0 20" /></svg>
+                    </div>
+                    <div>
+                        <h2 className="cine-title text-sm">Appearance</h2>
+                        <p className="text-[11px] text-text-3">Pick a theme — saved on this device, applies instantly</p>
+                    </div>
+                </div>
+                <div className="p-6 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+                    {THEMES.map((t) => (
+                        <button
+                            key={t.id}
+                            onClick={() => { applyTheme(t.id); setActiveTheme(t.id); }}
+                            className={`group rounded-xl border p-4 text-left transition-all ${activeTheme === t.id
+                                ? "border-accent/60 bg-accent/[0.07] ring-1 ring-accent/30"
+                                : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.16] hover:bg-white/[0.04]"
+                                }`}
+                        >
+                            <div className="flex gap-1.5 mb-3">
+                                {t.swatch.map((c, i) => (
+                                    <span key={i} className="w-4 h-4 rounded-full border border-white/20" style={{ background: c }} />
+                                ))}
+                            </div>
+                            <div className="text-sm font-semibold text-text-1 flex items-center gap-1.5">
+                                {t.name}
+                                {activeTheme === t.id && (
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-accent"><polyline points="20 6 9 17 4 12" /></svg>
+                                )}
+                            </div>
+                            <div className="text-[10px] text-text-3 mt-0.5 leading-snug">{t.description}</div>
+                        </button>
+                    ))}
+                </div>
+            </section>
 
             <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
                 <div className="space-y-4">
