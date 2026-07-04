@@ -7,6 +7,16 @@ import { auth } from "@/lib/firebase";
 import { usePremium } from "@/context/PremiumContext";
 import { COUPON_DURATIONS } from "@/lib/premium/plans";
 
+function SelectChevron() {
+    return (
+        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-text-3">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                <polyline points="6 9 12 15 18 9" />
+            </svg>
+        </div>
+    );
+}
+
 interface CouponRow {
     id: string;
     durationDays: number | null;
@@ -142,17 +152,20 @@ export default function AdminPage() {
                         className="w-full px-4 py-2.5 rounded-xl bg-base border border-white/[0.08] text-sm text-text-1 placeholder:text-text-3 focus:outline-none focus:border-accent/50 mb-3"
                     />
                     <div className="flex gap-3">
-                        <select
-                            value={grantDuration}
-                            onChange={(e) => setGrantDuration(e.target.value)}
-                            className="flex-1 px-3 py-2.5 rounded-xl bg-base border border-white/[0.08] text-sm text-text-1 focus:outline-none"
-                        >
-                            {COUPON_DURATIONS.map((d) => (
-                                <option key={d.label} value={d.durationDays === null ? "lifetime" : String(d.durationDays)}>
-                                    {d.label}
-                                </option>
-                            ))}
-                        </select>
+                        <div className="relative flex-1">
+                            <select
+                                value={grantDuration}
+                                onChange={(e) => setGrantDuration(e.target.value)}
+                                className="w-full px-3 py-2.5 pr-10 rounded-xl bg-base border border-white/[0.08] text-sm text-text-1 focus:outline-none focus:border-accent/50 appearance-none cursor-pointer"
+                            >
+                                {COUPON_DURATIONS.map((d) => (
+                                    <option key={d.label} value={d.durationDays === null ? "lifetime" : String(d.durationDays)} className="bg-surface text-text-1">
+                                        {d.label}
+                                    </option>
+                                ))}
+                            </select>
+                            <SelectChevron />
+                        </div>
                         <button
                             onClick={() => grant(false)}
                             disabled={grantBusy || !grantEmail.trim()}
@@ -175,17 +188,20 @@ export default function AdminPage() {
                         <Ticket size={16} className="text-accent" /> Generate coupon codes
                     </h2>
                     <div className="flex gap-3 mb-3">
-                        <select
-                            value={genDuration}
-                            onChange={(e) => setGenDuration(e.target.value)}
-                            className="flex-1 px-3 py-2.5 rounded-xl bg-base border border-white/[0.08] text-sm text-text-1 focus:outline-none"
-                        >
-                            {COUPON_DURATIONS.map((d) => (
-                                <option key={d.label} value={d.durationDays === null ? "lifetime" : String(d.durationDays)}>
-                                    {d.label}
-                                </option>
-                            ))}
-                        </select>
+                        <div className="relative flex-1">
+                            <select
+                                value={genDuration}
+                                onChange={(e) => setGenDuration(e.target.value)}
+                                className="w-full px-3 py-2.5 pr-10 rounded-xl bg-base border border-white/[0.08] text-sm text-text-1 focus:outline-none focus:border-accent/50 appearance-none cursor-pointer"
+                            >
+                                {COUPON_DURATIONS.map((d) => (
+                                    <option key={d.label} value={d.durationDays === null ? "lifetime" : String(d.durationDays)} className="bg-surface text-text-1">
+                                        {d.label}
+                                    </option>
+                                ))}
+                            </select>
+                            <SelectChevron />
+                        </div>
                         <input
                             type="number"
                             min={1}
