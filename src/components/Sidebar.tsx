@@ -188,17 +188,35 @@ export default function Sidebar() {
 
       {/* User Profile + Logout */}
       {user && (
-        <div className="mx-3 mb-4 p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] shrink-0">
+        <div className={`mx-3 mb-4 p-3 rounded-xl shrink-0 border ${isPremium
+          ? "bg-gradient-to-br from-accent/[0.08] to-transparent border-accent/25"
+          : "bg-white/[0.02] border-white/[0.06]"}`}>
           <div className="flex items-center gap-3 mb-3">
-            {user.photoURL ? (
-              <Image src={user.photoURL} alt="" width={32} height={32} className="rounded-full ring-1 ring-white/10" referrerPolicy="no-referrer" unoptimized />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-accent/15 flex items-center justify-center text-accent text-xs font-bold ring-1 ring-white/10">
-                {user.displayName?.[0] || user.email?.[0] || "?"}
-              </div>
-            )}
+            <div className="relative shrink-0">
+              {user.photoURL ? (
+                <Image src={user.photoURL} alt="" width={32} height={32} className={`rounded-full ring-2 ${isPremium ? "ring-accent/60" : "ring-white/10"}`} referrerPolicy="no-referrer" unoptimized />
+              ) : (
+                <div className={`w-8 h-8 rounded-full bg-accent/15 flex items-center justify-center text-accent text-xs font-bold ring-2 ${isPremium ? "ring-accent/60" : "ring-white/10"}`}>
+                  {user.displayName?.[0] || user.email?.[0] || "?"}
+                </div>
+              )}
+              {isPremium && (
+                <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-accent flex items-center justify-center shadow-accent-glow" title={isLifetime ? "Lifetime Premium" : "Premium"}>
+                  <Icon.Crown className="w-2.5 h-2.5 text-black" />
+                </span>
+              )}
+            </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-text-1 truncate">{user.displayName || "User"}</div>
+              <div className="text-xs font-semibold text-text-1 truncate flex items-center gap-1.5">
+                <span className="truncate">{user.displayName || "User"}</span>
+                {isPremium && (
+                  <span className={`shrink-0 px-1.5 py-[1px] rounded-md text-[8px] font-black uppercase tracking-wider ${isLifetime
+                    ? "bg-gradient-to-r from-accent to-accent-strong text-black"
+                    : "bg-accent/15 text-accent border border-accent/30"}`}>
+                    {isLifetime ? "Lifetime" : "Premium"}
+                  </span>
+                )}
+              </div>
               <div className="text-[10px] text-text-3 truncate">{user.email}</div>
             </div>
           </div>
