@@ -1,6 +1,7 @@
 "use client";
 
 import { useTorrents } from "@/context/TorrentContext";
+import { usePremium } from "@/context/PremiumContext";
 import StreamPlayer from "@/components/StreamPlayer";
 import { listContinueWatching, removeProgress, type WatchEntry } from "@/lib/watchProgress";
 import { isAdultTitle, isAdultQuery } from "@/lib/contentFilter";
@@ -207,6 +208,7 @@ export default function SearchPage() {
         isEngineConnected,
         addMagnet,
     } = useTorrents();
+    const { isPremium, openLimitModal } = usePremium();
 
     const [sortBy, setSortBy] = useState('Relevance');
     const [sortOpen, setSortOpen] = useState(false);
@@ -683,8 +685,11 @@ export default function SearchPage() {
                 next.delete(id);
                 return next;
             });
-            setErrorId(id);
-            setTimeout(() => setErrorId(null), 3000);
+            // The free-tier limit already explains itself with the upgrade modal.
+            if ((err as { code?: string })?.code !== 'FREE_LIMIT_REACHED') {
+                setErrorId(id);
+                setTimeout(() => setErrorId(null), 3000);
+            }
         } finally {
             setAddingId(null);
         }
@@ -705,6 +710,11 @@ export default function SearchPage() {
     const handleStream = async (id: number) => {
         const item = searchResults.find(r => r.id === id);
         if (!item || streamingId === id) return;
+        // Streaming a torrent that is still downloading is a premium feature.
+        if (!isPremium) {
+            openLimitModal('streaming');
+            return;
+        }
         setStreamingId(id);
         setErrorId(null);
         try {
@@ -737,6 +747,11 @@ export default function SearchPage() {
     const handleQuickWatch = async (id: number) => {
         const item = searchResults.find(r => r.id === id);
         if (!item || quickId === id) return;
+        // Quick Watch streams while downloading — premium only.
+        if (!isPremium) {
+            openLimitModal('streaming');
+            return;
+        }
         setQuickId(id);
         setErrorId(null);
         try {

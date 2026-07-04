@@ -7,6 +7,7 @@ import Sidebar from "@/components/Sidebar";
 import { TorrentProvider } from "@/context/TorrentContext";
 import EngineStatusOverlay from "@/components/EngineStatusOverlay";
 import MobileBlocker from "@/components/MobileBlocker";
+import UpgradeModal from "@/components/UpgradeModal";
 
 export default function ProtectedLayout({
   children,
@@ -52,6 +53,7 @@ export default function ProtectedLayout({
             </div>
             <EngineStatusOverlay />
           </main>
+          <UpgradeModal />
         </div>
       </TorrentProvider>
     </MobileBlocker>

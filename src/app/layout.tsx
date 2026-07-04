@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
+import { PremiumProvider } from "@/context/PremiumContext";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 
@@ -33,7 +34,9 @@ export default function RootLayout({
         className={`${dmSans.variable} ${jetBrainsMono.variable} antialiased bg-base text-text-1 min-h-screen`}
       >
         <AuthProvider>
-          {children}
+          <PremiumProvider>
+            {children}
+          </PremiumProvider>
         </AuthProvider>
         <SpeedInsights />
         <Analytics />

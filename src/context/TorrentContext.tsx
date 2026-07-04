@@ -6,6 +6,8 @@ import axios from 'axios';
 import { auth } from "@/lib/firebase";
 import { onIdTokenChanged } from "firebase/auth";
 import { useAuth } from './AuthContext';
+import { usePremium } from './PremiumContext';
+import { FREE_MAX_ACTIVE_DOWNLOADS } from '@/lib/premium/plans';
 
 // ─── Types ───
 interface TorrentState {
@@ -73,6 +75,7 @@ const TorrentContext = createContext<TorrentContextType | undefined>(undefined);
 const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3001';
 
 export function TorrentProvider({ children }: { children: React.ReactNode }) {
+    const { isPremium, openLimitModal } = usePremium();
     const [torrents, setTorrents] = useState<TorrentState[]>([]);
     const [totalDownloadSpeed, setTotalDownloadSpeed] = useState(0);
     const [totalUploadSpeed, setTotalUploadSpeed] = useState(0);
@@ -224,6 +227,15 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const addMagnet = async (magnet: string) => {
+        // Free tier: cap concurrent downloads. Seeding and completed torrents
+        // never count, and torrents already running are never touched.
+        const activeDownloads = torrents.filter(t => t.status === 'Downloading' || t.status === 'Paused').length;
+        if (!isPremium && activeDownloads >= FREE_MAX_ACTIVE_DOWNLOADS) {
+            openLimitModal('download-limit');
+            const limitErr = new Error('FREE_LIMIT_REACHED') as Error & { code?: string };
+            limitErr.code = 'FREE_LIMIT_REACHED';
+            throw limitErr;
+        }
         try {
             const res = await axios.post(`${API_BASE}/api/torrents`, { magnet });
             // Returns { infoHash, name } so callers (e.g. Stream) know what was added.
