@@ -180,7 +180,11 @@ function UpgradePageInner() {
                 <h2 className="text-sm font-bold text-text-1 flex items-center gap-2 mb-1.5">
                     <Ticket size={16} className="text-accent" /> Redeem a code
                 </h2>
-                <p className="text-xs text-text-3 mb-4">Got a Vortex premium code? Redeem it here — it stacks with any active plan.</p>
+                <p className="text-xs text-text-3 mb-4">
+                    {isLifetime
+                        ? "You already have Lifetime Premium — codes can't add anything. Gift them to a friend instead."
+                        : "Got a Vortex premium code? Redeem it here — it stacks with any active plan."}
+                </p>
                 <div className="flex gap-3 max-w-md">
                     <input
                         value={code}
@@ -188,11 +192,12 @@ function UpgradePageInner() {
                         onKeyDown={(e) => e.key === "Enter" && redeem()}
                         placeholder="VTX-XXXX-XXXX-XXXX"
                         spellCheck={false}
-                        className="flex-1 px-4 py-2.5 rounded-xl bg-base border border-white/[0.08] text-sm text-text-1 font-mono tracking-wider placeholder:text-text-3 focus:outline-none focus:border-accent/50"
+                        disabled={isLifetime}
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-base border border-white/[0.08] text-sm text-text-1 font-mono tracking-wider placeholder:text-text-3 focus:outline-none focus:border-accent/50 disabled:opacity-40"
                     />
                     <button
                         onClick={redeem}
-                        disabled={redeeming || !code.trim()}
+                        disabled={redeeming || !code.trim() || isLifetime}
                         className="px-5 py-2.5 rounded-xl bg-accent text-black text-sm font-bold hover:brightness-110 transition-all disabled:opacity-50"
                     >
                         {redeeming ? "Checking…" : "Redeem"}
