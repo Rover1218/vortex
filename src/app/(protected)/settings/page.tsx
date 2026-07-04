@@ -1,10 +1,14 @@
 "use client";
 
 import { useTorrents } from "@/context/TorrentContext";
-import { useEffect, useState } from "react";
+import { usePremium } from "@/context/PremiumContext";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 
 export default function SettingsPage() {
     const { settings, updateSettings, browseFolders } = useTorrents();
+    const { isPremium, isLifetime, premiumUntil, loading: premiumLoading, openLimitModal } = usePremium();
+    const forcedSubtitleOff = useRef(false);
     const [localSettings, setLocalSettings] = useState<any>(null);
     const [dlLimitStr, setDlLimitStr] = useState("");
     const [ulLimitStr, setUlLimitStr] = useState("");
@@ -22,6 +26,17 @@ export default function SettingsPage() {
             setUlLimitStr(settings.globalUploadLimit.toString());
         }
     }, [settings, localSettings]);
+
+    // Auto-subtitles are premium: if a user's plan lapsed with the toggle still
+    // on, switch it off once so the engine stops fetching subtitles.
+    useEffect(() => {
+        if (premiumLoading || isPremium || forcedSubtitleOff.current) return;
+        if ((settings as any)?.autoSubtitle) {
+            forcedSubtitleOff.current = true;
+            updateSettings({ autoSubtitle: false } as any);
+            setLocalSettings((prev: any) => (prev ? { ...prev, autoSubtitle: false } : prev));
+        }
+    }, [premiumLoading, isPremium, settings, updateSettings]);
 
     const handleSave = async () => {
         if (!localSettings) return;
@@ -95,6 +110,32 @@ export default function SettingsPage() {
                         ) : isSaving ? "Saving..." : "Save Settings"}
                     </button>
                 </div>
+            </div>
+
+            {/* Plan */}
+            <div className="relative z-10 cine-card px-6 py-5 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 ${isPremium ? "bg-accent/12 text-accent ring-accent/25" : "bg-white/[0.04] text-text-3 ring-white/[0.08]"}`}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="m2 8 4 10h12l4-10-6 4-4-7-4 7z" /></svg>
+                    </div>
+                    <div>
+                        <h2 className="cine-title text-sm">
+                            {isLifetime ? "Lifetime Premium" : isPremium ? "Premium" : "Free plan"}
+                        </h2>
+                        <p className="text-[11px] text-text-3 mt-0.5">
+                            {isLifetime
+                                ? "Everything unlocked, forever"
+                                : isPremium
+                                    ? `Active until ${premiumUntil?.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) ?? "—"}`
+                                    : "2 downloads at a time · no streaming while downloading · no auto-subtitles"}
+                        </p>
+                    </div>
+                </div>
+                {!isLifetime && (
+                    <Link href="/upgrade" className="px-5 py-2.5 bg-accent/10 text-accent border border-accent/20 rounded-xl font-semibold text-sm hover:bg-accent/20 transition-all">
+                        {isPremium ? "Extend plan" : "Go Premium"}
+                    </Link>
+                )}
             </div>
 
             <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
@@ -217,12 +258,23 @@ export default function SettingsPage() {
                         {/* Auto-download toggle */}
                         <div className="flex items-center justify-between py-3 px-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
                             <div>
-                                <p className="text-sm text-text-1 font-medium">Auto-download subtitles</p>
+                                <p className="text-sm text-text-1 font-medium flex items-center gap-2">
+                                    Auto-download subtitles
+                                    {!isPremium && (
+                                        <span className="px-1.5 py-0.5 rounded-md bg-accent/15 border border-accent/30 text-accent text-[9px] font-black uppercase tracking-wide">Premium</span>
+                                    )}
+                                </p>
                                 <p className="text-[11px] text-text-3 mt-0.5">Automatically fetch the top subtitle match when a torrent finishes downloading</p>
                             </div>
                             <button
-                                onClick={() => setLocalSettings({ ...localSettings, autoSubtitle: !localSettings.autoSubtitle })}
-                                className={`relative shrink-0 w-11 h-6 rounded-full transition-all duration-300 ${localSettings.autoSubtitle ? "bg-accent" : "bg-white/10"}`}
+                                onClick={() => {
+                                    if (!isPremium) {
+                                        openLimitModal('subtitles');
+                                        return;
+                                    }
+                                    setLocalSettings({ ...localSettings, autoSubtitle: !localSettings.autoSubtitle });
+                                }}
+                                className={`relative shrink-0 w-11 h-6 rounded-full transition-all duration-300 ${localSettings.autoSubtitle ? "bg-accent" : "bg-white/10"} ${!isPremium ? "opacity-50" : ""}`}
                             >
                                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all duration-300 ${localSettings.autoSubtitle ? "translate-x-5" : "translate-x-0"}`} />
                             </button>

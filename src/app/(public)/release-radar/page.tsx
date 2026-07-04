@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import RefreshRadarButton from "@/components/RefreshRadarButton";
 import RadarAuthButton from "@/components/RadarAuthButton";
 import RadarCard from "@/components/RadarCard";
+import RadarPremiumGate from "@/components/RadarPremiumGate";
 
 export const revalidate = 300;
 export const runtime = "nodejs";
@@ -565,6 +566,7 @@ export default async function ReleaseRadarPage() {
             </header>
 
             <main className="relative z-10 mx-auto max-w-7xl px-6 pb-16">
+                <RadarPremiumGate>
                 <section className="overflow-hidden cine-card shadow-cinema p-8 md:p-10">
                     <div>
                         <div className="flex flex-wrap items-center gap-3">
@@ -741,6 +743,7 @@ export default async function ReleaseRadarPage() {
                         )}
                     />
                 </div>
+                </RadarPremiumGate>
             </main>
         </div>
     );

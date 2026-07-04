@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getProgress, saveProgress } from "@/lib/watchProgress";
 import { useTorrents } from "@/context/TorrentContext";
+import { usePremium } from "@/context/PremiumContext";
 
 const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || "http://localhost:3001";
 
@@ -74,6 +75,11 @@ function CineSpinner({ label }: { label: string }) {
 
 export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, initialTime, ephemeral }: StreamPlayerProps) {
     const { torrents } = useTorrents();
+    const { isPremium, openLimitModal } = usePremium();
+    // Streaming while a torrent is still downloading is premium-only. Completed
+    // and seeding torrents (and library files no longer in the engine) play free.
+    const activeStatus = torrents.find(t => t.infoHash === infoHash)?.status;
+    const blockedForFree = !isPremium && (!!ephemeral || activeStatus === 'Downloading' || activeStatus === 'Paused');
     const [phase, setPhase] = useState<Phase>("loading");
     const [source, setSource] = useState<string>("");
     const [files, setFiles] = useState<VideoFile[]>([]);
@@ -114,6 +120,14 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
     const initialTimeRef = useRef<number | undefined>(initialTime);
 
     useEffect(() => { setMounted(true); }, []);
+    // Free users get the upgrade modal instead of the player.
+    useEffect(() => {
+        if (blockedForFree) {
+            openLimitModal('streaming');
+            onClose();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [blockedForFree]);
     // Show controls when paused; start the auto-hide countdown when playing.
     useEffect(() => {
         if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
@@ -365,7 +379,7 @@ export default function StreamPlayer({ infoHash, name, onClose, initialFileIdx, 
         if (playing) hideTimerRef.current = setTimeout(() => setControlsVisible(false), 3000);
     };
 
-    if (!mounted) return null;
+    if (!mounted || blockedForFree) return null;
 
     return createPortal(
         <div

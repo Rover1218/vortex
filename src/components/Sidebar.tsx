@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useTorrents } from "@/context/TorrentContext";
 import { useAuth } from "@/context/AuthContext";
+import { usePremium } from "@/context/PremiumContext";
 
 type IconProps = { className?: string };
 const Icon = {
@@ -32,6 +33,12 @@ const Icon = {
   Guide: (p: IconProps) => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={p.className}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
   ),
+  Crown: (p: IconProps) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={p.className}><path d="m2 8 4 10h12l4-10-6 4-4-7-4 7z" /></svg>
+  ),
+  Shield: (p: IconProps) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={p.className}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></svg>
+  ),
 };
 
 const NAV_ITEMS = [
@@ -49,6 +56,14 @@ export default function Sidebar() {
   const router = useRouter();
   const { diskInfo, torrents, totalDownloadSpeed, totalUploadSpeed, lifetimeDownloaded, lifetimeSeeded } = useTorrents();
   const { user, signOut } = useAuth();
+  const { isPremium, isLifetime, isAdmin } = usePremium();
+
+  const navItems = [
+    ...NAV_ITEMS,
+    // Lifetime users have nothing left to buy; everyone else can upgrade/extend.
+    ...(!isLifetime ? [{ label: "Upgrade", href: "/upgrade", icon: Icon.Crown }] : []),
+    ...(isAdmin ? [{ label: "Admin", href: "/admin", icon: Icon.Shield }] : []),
+  ];
 
   const handleLogout = async () => {
     try {
@@ -91,9 +106,10 @@ export default function Sidebar() {
       <div className="flex-1 min-h-0 overflow-y-auto hide-scrollbar px-3 py-4 space-y-4">
         {/* Nav */}
         <nav className="space-y-1">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const isActive = pathname === item.href || (item.href === '/search' && pathname === '/');
             const ItemIcon = item.icon;
+            const isUpgrade = item.label === 'Upgrade';
             return (
               <Link
                 key={item.href}
@@ -101,14 +117,21 @@ export default function Sidebar() {
                 prefetch={false}
                 className={`group relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-colors ${isActive
                   ? "bg-white/[0.06] text-text-1"
-                  : "text-text-2 hover:text-text-1 hover:bg-white/[0.03]"
+                  : isUpgrade && !isPremium
+                    ? "text-accent hover:bg-accent/[0.08]"
+                    : "text-text-2 hover:text-text-1 hover:bg-white/[0.03]"
                   }`}
               >
                 {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-accent rounded-r-full" />}
-                <ItemIcon className={`w-[18px] h-[18px] shrink-0 ${isActive ? "text-accent" : "text-text-3 group-hover:text-text-2"}`} />
+                <ItemIcon className={`w-[18px] h-[18px] shrink-0 ${isActive || (isUpgrade && !isPremium) ? "text-accent" : "text-text-3 group-hover:text-text-2"}`} />
                 <span>{item.label}</span>
                 {item.label === 'Downloads' && activeDownloads > 0 && (
                   <span className="ml-auto text-[10px] font-bold bg-accent/15 text-accent px-2 py-0.5 rounded-full">{activeDownloads}</span>
+                )}
+                {isUpgrade && (
+                  <span className={`ml-auto text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded-md ${isPremium ? "bg-teal/15 text-teal" : "bg-accent/15 text-accent"}`}>
+                    {isPremium ? "Active" : "Pro"}
+                  </span>
                 )}
               </Link>
             );
