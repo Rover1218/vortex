@@ -43,6 +43,37 @@ To start downloading, you need the **Vortex Engine** running on your computer.
 
 ---
 
+## 💎 Premium & Payments
+
+Vortex has a free tier and paid premium plans, all one-time payments (no auto-renewal):
+
+| Plan | India | International | Grants |
+|------|-------|---------------|--------|
+| Free | — | — | Search, 2 simultaneous downloads, unlimited seeding, watch completed files |
+| 1 Month | ₹89 | $1 | 30 days premium |
+| 6 Months | ₹449 | $5 | 180 days premium |
+| Lifetime | ₹3,299 | $40 | Premium forever |
+
+**Premium unlocks:** unlimited simultaneous downloads, streaming while downloading, auto-subtitles, and Release Radar. Time from purchases and redeem codes always stacks. Existing torrents are never interrupted — the free limit only applies when adding new ones.
+
+### How it works
+
+- Payments run through [Dodo Payments](https://dodopayments.com) (UPI/cards in India, cards/PayPal internationally). A webhook auto-activates premium seconds after payment — no manual steps.
+- Premium status lives in `users/{uid}/config/entitlement`, written **only** by the server (see `firestore.rules`). Clients can read it, never write it.
+- Coupon codes (`VTX-XXXX-XXXX-XXXX`) are generated on the owner-only `/admin` page, stored **hashed**, single-use, and support 1/3/6/12-month and lifetime durations.
+
+### Owner setup
+
+1. Create a Dodo Payments account and complete KYC.
+2. Create the three products (1 month / 6 months / lifetime) and note their product IDs.
+3. Add a webhook pointing to `https://<your-domain>/api/premium/webhook` and copy the signing secret.
+4. Fill the `DODO_*`, `ADMIN_UID`, and `NEXT_PUBLIC_*` variables (see `.env.example`) in Vercel.
+5. Do one test-mode payment end-to-end before switching `DODO_API_BASE` to live.
+
+If the payment provider is unavailable, coupon redemption on `/upgrade` and manual grants on `/admin` keep working as the fallback sales channel.
+
+---
+
 ## 🛠️ Local Development
 
 To run the full stack locally:

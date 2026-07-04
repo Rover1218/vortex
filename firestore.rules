@@ -53,6 +53,13 @@ service cloud.firestore {
       // This applies to the proxy (Vercel) which uses Auth tokens to communicate
       allow read, write: if isOwner(userId);
       
+      // PREMIUM INVARIANT: users/{uid}/config/entitlement holds the premium
+      // plan and expiry. Owners may READ it (the app listens live), but the
+      // write rule below only whitelists 'settings' and 'stats', so NO client
+      // can ever write 'entitlement'. It is written exclusively by the server
+      // (firebase-admin in the /api/premium/* routes, which bypasses rules).
+      // Likewise, 'coupons', 'payments', and 'couponAttempts' collections have
+      // no match block at all — Firestore denies all client access by default.
       match /config/{documentId} {
         allow read: if isOwner(userId);
         allow write: if isOwner(userId)
