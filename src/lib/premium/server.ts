@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { Timestamp, FieldValue, type Transaction, type DocumentData } from 'firebase-admin/firestore';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { computeGrant, type EntitlementCore, type Grant } from './entitlement';
+import { computeGrant, withFirstPurchaseBonus, type EntitlementCore, type Grant } from './entitlement';
+import { FIRST_PURCHASE_BONUS_DAYS } from './plans';
 import { hashCouponCode, normalizeCouponCode } from './coupons';
 
 export class HttpError extends Error {
@@ -75,7 +76,9 @@ export async function applyGrant(
  * Idempotently credit a payment: records the payment audit doc and extends the
  * entitlement in ONE transaction, so webhook retries can never double-credit
  * and a failed grant is retried together with its payment record.
- * Returns false when the payment was already processed.
+ * A user's first-ever payment (judged by the payments ledger, so coupons don't
+ * count) gets FIRST_PURCHASE_BONUS_DAYS extra on timed plans.
+ * `credited` is false when the payment was already processed.
  */
 export async function grantPaymentOnce(
   eventKey: string,
@@ -83,14 +86,25 @@ export async function grantPaymentOnce(
   grant: Grant,
   planLabel: string,
   record: Record<string, unknown>,
-): Promise<boolean> {
+): Promise<{ credited: boolean; bonusDays: number }> {
   const payRef = adminDb.collection('payments').doc(eventKey);
+  const priorPaymentQuery = adminDb.collection('payments').where('uid', '==', uid).limit(1);
   return adminDb.runTransaction(async (txn) => {
-    const [paySnap, entSnap] = await Promise.all([txn.get(payRef), txn.get(entitlementRef(uid))]);
-    if (paySnap.exists) return false;
-    txn.set(payRef, { ...record, createdAt: FieldValue.serverTimestamp() });
-    applyGrantTxn(txn, uid, toCore(entSnap.data()), grant, 'payment', planLabel);
-    return true;
+    const [paySnap, entSnap, priorSnap] = await Promise.all([
+      txn.get(payRef),
+      txn.get(entitlementRef(uid)),
+      txn.get(priorPaymentQuery),
+    ]);
+    if (paySnap.exists) return { credited: false, bonusDays: 0 };
+
+    const { grant: effectiveGrant, bonusDays } = withFirstPurchaseBonus(
+      grant,
+      priorSnap.empty,
+      FIRST_PURCHASE_BONUS_DAYS,
+    );
+    txn.set(payRef, { ...record, firstPurchaseBonusDays: bonusDays, createdAt: FieldValue.serverTimestamp() });
+    applyGrantTxn(txn, uid, toCore(entSnap.data()), effectiveGrant, 'payment', planLabel);
+    return { credited: true, bonusDays };
   });
 }
 

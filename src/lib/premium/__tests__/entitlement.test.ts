@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeGrant, isPremiumActive, type EntitlementCore } from '../entitlement';
+import { computeGrant, isPremiumActive, withFirstPurchaseBonus, type EntitlementCore } from '../entitlement';
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = 1_750_000_000_000;
@@ -31,6 +31,33 @@ describe('computeGrant', () => {
     const current: EntitlementCore = { isLifetime: true, premiumUntilMs: null };
     const result = computeGrant(current, { durationDays: 30 }, NOW);
     expect(result).toEqual({ isLifetime: true, premiumUntilMs: null });
+  });
+});
+
+describe('withFirstPurchaseBonus', () => {
+  it('adds bonus days to a timed grant on the first purchase', () => {
+    expect(withFirstPurchaseBonus({ durationDays: 30 }, true, 30)).toEqual({
+      grant: { durationDays: 60 },
+      bonusDays: 30,
+    });
+    expect(withFirstPurchaseBonus({ durationDays: 180 }, true, 30)).toEqual({
+      grant: { durationDays: 210 },
+      bonusDays: 30,
+    });
+  });
+
+  it('gives no bonus on repeat purchases', () => {
+    expect(withFirstPurchaseBonus({ durationDays: 30 }, false, 30)).toEqual({
+      grant: { durationDays: 30 },
+      bonusDays: 0,
+    });
+  });
+
+  it('leaves lifetime grants untouched even on first purchase', () => {
+    expect(withFirstPurchaseBonus({ lifetime: true }, true, 30)).toEqual({
+      grant: { lifetime: true },
+      bonusDays: 0,
+    });
   });
 });
 

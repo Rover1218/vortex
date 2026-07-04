@@ -3,10 +3,10 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { Crown, Check, Ticket, Loader2, PartyPopper } from "lucide-react";
+import { Crown, Check, Ticket, Loader2, PartyPopper, Gift } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { usePremium } from "@/context/PremiumContext";
-import { PLANS, type PlanId } from "@/lib/premium/plans";
+import { PLANS, FIRST_PURCHASE_BONUS_DAYS, type PlanId } from "@/lib/premium/plans";
 
 const PLAN_FEATURES = [
     "Unlimited simultaneous downloads",
@@ -146,6 +146,11 @@ function UpgradePageInner() {
                             <div className="text-xs text-text-3 mt-1">
                                 {plan.durationDays === null ? "Pay once, premium forever" : `${plan.durationDays} days of premium`}
                             </div>
+                            {plan.durationDays !== null && (
+                                <div className="mt-2 self-start inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-teal/10 border border-teal/30 text-[10px] font-bold text-teal">
+                                    <Gift size={11} /> First purchase: +{FIRST_PURCHASE_BONUS_DAYS} days free
+                                </div>
+                            )}
                             <ul className="mt-5 space-y-2 flex-1">
                                 {PLAN_FEATURES.map((f) => (
                                     <li key={f} className="flex items-center gap-2 text-xs text-text-2">

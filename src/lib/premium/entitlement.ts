@@ -19,6 +19,19 @@ export function computeGrant(current: EntitlementCore | null, grant: Grant, nowM
   return { isLifetime: false, premiumUntilMs: base + grant.durationDays * MS_PER_DAY };
 }
 
+/**
+ * First-purchase promo: pad a timed grant with bonus days. Lifetime grants and
+ * repeat purchases pass through untouched.
+ */
+export function withFirstPurchaseBonus(
+  grant: Grant,
+  isFirstPurchase: boolean,
+  bonusDays: number,
+): { grant: Grant; bonusDays: number } {
+  if (!isFirstPurchase || !('durationDays' in grant)) return { grant, bonusDays: 0 };
+  return { grant: { durationDays: grant.durationDays + bonusDays }, bonusDays };
+}
+
 export function isPremiumActive(ent: EntitlementCore | null, nowMs: number): boolean {
   if (!ent) return false;
   if (ent.isLifetime) return true;

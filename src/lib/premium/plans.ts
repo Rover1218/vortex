@@ -17,6 +17,9 @@ export const PLANS: Record<PlanId, PlanInfo> = {
 
 export const FREE_MAX_ACTIVE_DOWNLOADS = 2;
 
+// Extra days added to a user's FIRST-ever payment (not coupons, not lifetime).
+export const FIRST_PURCHASE_BONUS_DAYS = 30;
+
 export const COUPON_DURATIONS: { label: string; durationDays: number | null }[] = [
   { label: '1 Month', durationDays: 30 },
   { label: '3 Months', durationDays: 90 },

@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     const info = PLANS[plan];
     const eventKey = String(data.payment_id || id);
-    const fresh = await grantPaymentOnce(
+    const result = await grantPaymentOnce(
       eventKey,
       uid,
       info.durationDays === null ? { lifetime: true } : { durationDays: info.durationDays },
@@ -63,7 +63,8 @@ export async function POST(req: NextRequest) {
         status: 'succeeded',
       },
     );
-    return NextResponse.json({ received: true, ...(fresh ? {} : { duplicate: true }) });
+    if (!result.credited) return NextResponse.json({ received: true, duplicate: true });
+    return NextResponse.json({ received: true, ...(result.bonusDays ? { first_purchase_bonus_days: result.bonusDays } : {}) });
   } catch (err) {
     // 500 makes Dodo retry; grantPaymentOnce is idempotent so retries are safe.
     console.error('[Premium Webhook] processing error', err);
