@@ -32,12 +32,21 @@ function UpgradePageInner() {
     const [redeeming, setRedeeming] = useState(false);
     const [redeemMsg, setRedeemMsg] = useState<{ ok: boolean; text: string } | null>(null);
     const [waitingActivation, setWaitingActivation] = useState(cameFromPayment);
+    const [activationSlow, setActivationSlow] = useState(false);
 
     // After returning from checkout, the webhook usually lands within seconds;
     // the entitlement snapshot flips isPremium live, so we just wait for it.
     useEffect(() => {
         if (waitingActivation && isPremium) setWaitingActivation(false);
     }, [waitingActivation, isPremium]);
+
+    // If the webhook is delayed, stop implying it's about to finish and tell
+    // the buyer their money is safe instead of spinning forever.
+    useEffect(() => {
+        if (!waitingActivation) return;
+        const id = setTimeout(() => setActivationSlow(true), 60_000);
+        return () => clearTimeout(id);
+    }, [waitingActivation]);
 
     const startCheckout = async (plan: PlanId) => {
         setBuyError(null);
@@ -97,7 +106,9 @@ function UpgradePageInner() {
             {waitingActivation && !isPremium && (
                 <div className="mb-6 flex items-center gap-3 px-5 py-4 rounded-2xl bg-accent/10 border border-accent/30 text-sm text-text-1">
                     <Loader2 className="animate-spin text-accent" size={18} />
-                    Payment received — activating your premium… this usually takes a few seconds.
+                    {activationSlow
+                        ? "Activation is taking longer than usual. Your payment is safe — leave this page open, or check back in a few minutes. Still locked after that? Contact support with your payment email and it will be activated manually."
+                        : "Payment received — activating your premium… this usually takes a few seconds."}
                 </div>
             )}
 
