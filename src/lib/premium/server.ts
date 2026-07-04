@@ -134,6 +134,10 @@ export async function redeemCoupon(uid: string, rawCode: string): Promise<{ dura
   return adminDb.runTransaction(async (txn) => {
     const [couponSnap, entSnap] = await Promise.all([txn.get(couponRef), txn.get(entitlementRef(uid))]);
     if (!couponSnap.exists) throw new HttpError(404, 'Invalid code');
+    // Lifetime accounts can't gain anything — refuse instead of burning the code.
+    if (toCore(entSnap.data())?.isLifetime) {
+      throw new HttpError(409, 'You already have lifetime premium — this code was not used');
+    }
     const coupon = couponSnap.data()!;
     if (coupon.revoked) throw new HttpError(410, 'This code has been revoked');
     if (coupon.redeemedBy) throw new HttpError(409, 'This code has already been used');
