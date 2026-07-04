@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { requireAdmin, applyGrant, entitlementRef, HttpError } from '@/lib/premium/server';
-import { generateCouponCode, hashCouponCode, COUPON_DURATIONS } from '@/lib/premium/coupons';
+import { generateCouponCode, hashCouponCode } from '@/lib/premium/coupons';
+import { COUPON_DURATIONS } from '@/lib/premium/plans';
 
 const MAX_BATCH = 100;
 

@@ -17,6 +17,14 @@ export const PLANS: Record<PlanId, PlanInfo> = {
 
 export const FREE_MAX_ACTIVE_DOWNLOADS = 2;
 
+export const COUPON_DURATIONS: { label: string; durationDays: number | null }[] = [
+  { label: '1 Month', durationDays: 30 },
+  { label: '3 Months', durationDays: 90 },
+  { label: '6 Months', durationDays: 180 },
+  { label: '1 Year', durationDays: 365 },
+  { label: 'Lifetime', durationDays: null },
+];
+
 export function isPlanId(value: unknown): value is PlanId {
   return value === 'monthly' || value === 'halfyear' || value === 'lifetime';
 }
