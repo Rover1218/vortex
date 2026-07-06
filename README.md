@@ -58,17 +58,17 @@ Vortex has a free tier and paid premium plans, all one-time payments (no auto-re
 
 ### How it works
 
-- Payments run through [Dodo Payments](https://dodopayments.com) (UPI/cards in India, cards/PayPal internationally). A webhook auto-activates premium seconds after payment — no manual steps.
+- Payments run through [Razorpay](https://razorpay.com) (UPI, cards, netbanking — India). A `payment.captured` webhook auto-activates premium seconds after payment — no manual steps. International users email the owner and pay via PayPal, receiving a redeem code.
 - Premium status lives in `users/{uid}/config/entitlement`, written **only** by the server (see `firestore.rules`). Clients can read it, never write it.
 - Coupon codes (`VTX-XXXX-XXXX-XXXX`) are generated on the owner-only `/admin` page, stored **hashed**, single-use, and support 1/3/6/12-month and lifetime durations.
 
 ### Owner setup
 
-1. Create a Dodo Payments account and complete KYC.
-2. Create the three products (1 month / 6 months / lifetime) and note their product IDs.
-3. Add a webhook pointing to `https://<your-domain>/api/premium/webhook` and copy the signing secret.
-4. Fill the `DODO_*`, `ADMIN_UID`, and `NEXT_PUBLIC_*` variables (see `.env.example`) in Vercel.
-5. Do one test-mode payment end-to-end before switching `DODO_API_BASE` to live.
+1. Create a Razorpay account and complete KYC (individuals supported).
+2. Dashboard → Account & Settings → API Keys → generate keys (`rzp_test_*` first).
+3. Dashboard → Webhooks → add `https://<your-domain>/api/premium/webhook`, subscribe it to `payment.captured`, and set a webhook secret.
+4. Fill `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `ADMIN_UID`, and `NEXT_PUBLIC_*` variables (see `.env.example`) in Vercel.
+5. Do one test-mode payment end-to-end before switching to live keys.
 
 If the payment provider is unavailable, coupon redemption on `/upgrade` and manual grants on `/admin` keep working as the fallback sales channel.
 

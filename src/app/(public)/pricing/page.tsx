@@ -57,7 +57,7 @@ export default function PricingPage() {
                     <p className="text-text-2 mt-4 max-w-2xl mx-auto leading-relaxed">
                         One-time payments — no subscriptions, no auto-renewal, no card on file.
                         Premium unlocks software features on your account instantly after payment.
-                        UPI for India, cards worldwide.
+                        UPI, cards &amp; netbanking for India; international users can pay via PayPal by email.
                     </p>
                 </div>
 
@@ -164,7 +164,14 @@ export default function PricingPage() {
                         <Crown size={16} /> {ctaLabel}
                     </Link>
                     <p className="text-[11px] text-text-3 mt-4">
-                        Payments are processed by Dodo Payments as merchant of record. Prices include applicable taxes.
+                        Payments are processed securely by Razorpay (UPI, cards, netbanking — India).
+                    </p>
+                    <p className="text-[11px] text-text-3 mt-1.5">
+                        🌍 Outside India? Email{" "}
+                        <a href="mailto:anindyakanti2020@gmail.com?subject=Vortex%20Premium%20(international)" className="text-accent hover:text-accent-strong underline underline-offset-2">
+                            anindyakanti2020@gmail.com
+                        </a>{" "}
+                        — we&apos;ll take payment via PayPal and activate premium with a redeem code.
                     </p>
                 </div>
             </main>

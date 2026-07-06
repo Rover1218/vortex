@@ -35,7 +35,12 @@ export async function GET(req: NextRequest) {
         }
 
         const token = authHeader.slice('Bearer '.length);
-        await adminAuth.verifyIdToken(token);
+        const decoded = await adminAuth.verifyIdToken(token);
+
+        // Admin-only: the leaderboard aggregates stats across every account.
+        if (!process.env.ADMIN_UID || decoded.uid !== process.env.ADMIN_UID) {
+            return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
+        }
 
         const limitParam = Number(req.nextUrl.searchParams.get('limit') || '25');
         const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 5), 100) : 25;

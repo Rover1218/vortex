@@ -1,6 +1,8 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
+import { usePremium } from "@/context/PremiumContext";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 type LeaderboardRow = {
@@ -68,9 +70,16 @@ const PODIUM = {
 
 export default function LeaderboardPage() {
     const { user } = useAuth();
+    const { isAdmin, loading: premiumLoading } = usePremium();
+    const router = useRouter();
     const [rows, setRows] = useState<LeaderboardRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Admin-only page: it aggregates stats across every user's account.
+    useEffect(() => {
+        if (!premiumLoading && !isAdmin) router.replace("/search");
+    }, [premiumLoading, isAdmin, router]);
 
     useEffect(() => {
         let cancelled = false;
@@ -110,6 +119,8 @@ export default function LeaderboardPage() {
         const [a, b, c] = topThree;
         return [b, a, c].filter(Boolean) as LeaderboardRow[];
     }, [topThree]);
+
+    if (premiumLoading || !isAdmin) return null;
 
     return (
         <div className="w-full max-w-full space-y-6 pb-12 relative isolate">

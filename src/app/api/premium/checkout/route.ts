@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser, HttpError } from '@/lib/premium/server';
-import { isPlanId, type PlanId } from '@/lib/premium/plans';
+import { PLANS, isPlanId } from '@/lib/premium/plans';
 
-const PRODUCT_ENV: Record<PlanId, string> = {
-  monthly: 'DODO_PRODUCT_MONTHLY',
-  halfyear: 'DODO_PRODUCT_HALFYEAR',
-  lifetime: 'DODO_PRODUCT_LIFETIME',
-};
-
+/**
+ * Creates a Razorpay Order for the chosen plan. The client opens Razorpay
+ * Checkout with the returned order id; the payment.captured webhook then
+ * activates premium. Amounts are in paise.
+ */
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser(req);
@@ -15,44 +14,50 @@ export async function POST(req: NextRequest) {
     const plan = body?.plan;
     if (!isPlanId(plan)) return NextResponse.json({ error: 'Unknown plan' }, { status: 400 });
 
-    const apiKey = process.env.DODO_API_KEY;
-    const apiBase = process.env.DODO_API_BASE || 'https://test.dodopayments.com';
-    const productId = process.env[PRODUCT_ENV[plan]];
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-    if (!apiKey || !productId || !appUrl) {
-      console.error('[Premium Checkout] missing configuration', {
-        hasApiKey: !!apiKey,
-        hasProductId: !!productId,
-        hasAppUrl: !!appUrl,
-      });
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    if (!keyId || !keySecret) {
+      console.error('[Premium Checkout] Razorpay keys not configured');
       return NextResponse.json(
         { error: 'Payments are not configured yet. Use a redeem code instead.' },
         { status: 503 },
       );
     }
 
-    const res = await fetch(`${apiBase}/checkouts`, {
+    const info = PLANS[plan];
+    const res = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`,
+      },
       body: JSON.stringify({
-        product_cart: [{ product_id: productId, quantity: 1 }],
-        ...(user.email ? { customer: { email: user.email } } : {}),
-        metadata: { uid: user.uid, plan },
-        return_url: `${appUrl}/upgrade?status=success`,
+        amount: info.inr * 100,
+        currency: 'INR',
+        receipt: `${plan}-${Date.now()}`,
+        notes: { uid: user.uid, plan },
       }),
     });
 
     if (!res.ok) {
-      console.error('[Premium Checkout] Dodo error', res.status, await res.text());
+      console.error('[Premium Checkout] Razorpay error', res.status, await res.text());
       return NextResponse.json({ error: 'Payment provider error. Try again in a minute.' }, { status: 502 });
     }
 
-    const session = await res.json();
-    if (!session?.checkout_url) {
-      console.error('[Premium Checkout] unexpected Dodo response', session);
+    const order = await res.json();
+    if (!order?.id) {
+      console.error('[Premium Checkout] unexpected Razorpay response', order);
       return NextResponse.json({ error: 'Payment provider error. Try again in a minute.' }, { status: 502 });
     }
-    return NextResponse.json({ checkout_url: session.checkout_url });
+
+    return NextResponse.json({
+      orderId: order.id,
+      keyId,
+      amount: info.inr * 100,
+      currency: 'INR',
+      planLabel: `Vortex Premium — ${info.label}`,
+      email: user.email ?? '',
+    });
   } catch (err) {
     if (err instanceof HttpError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error('[Premium Checkout] error', err);

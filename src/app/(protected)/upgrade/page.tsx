@@ -8,6 +8,32 @@ import { auth } from "@/lib/firebase";
 import { usePremium } from "@/context/PremiumContext";
 import { PLANS, FIRST_PURCHASE_BONUS_DAYS, type PlanId } from "@/lib/premium/plans";
 
+declare global {
+    interface Window {
+        Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
+    }
+}
+
+const SUPPORT_EMAIL = "anindyakanti2020@gmail.com";
+
+let razorpayScriptPromise: Promise<void> | null = null;
+function loadRazorpayScript(): Promise<void> {
+    if (window.Razorpay) return Promise.resolve();
+    if (!razorpayScriptPromise) {
+        razorpayScriptPromise = new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "https://checkout.razorpay.com/v1/checkout.js";
+            script.onload = () => resolve();
+            script.onerror = () => {
+                razorpayScriptPromise = null;
+                reject(new Error("Could not load the payment window. Check your connection."));
+            };
+            document.body.appendChild(script);
+        });
+    }
+    return razorpayScriptPromise;
+}
+
 const PLAN_FEATURES = [
     "Unlimited simultaneous downloads",
     "Stream while downloading",
@@ -60,8 +86,28 @@ function UpgradePageInner() {
                 body: JSON.stringify({ plan }),
             });
             const data = await res.json();
-            if (!res.ok || !data.checkout_url) throw new Error(data.error || "Could not start checkout");
-            window.location.href = data.checkout_url;
+            if (!res.ok || !data.orderId) throw new Error(data.error || "Could not start checkout");
+
+            await loadRazorpayScript();
+            if (!window.Razorpay) throw new Error("Could not load the payment window. Check your connection.");
+            const rzp = new window.Razorpay({
+                key: data.keyId,
+                order_id: data.orderId,
+                amount: data.amount,
+                currency: data.currency,
+                name: "Vortex",
+                description: data.planLabel,
+                prefill: { email: data.email },
+                theme: { color: "#f5a623" },
+                handler: () => {
+                    // Payment done — the webhook grants premium; the entitlement
+                    // snapshot flips isPremium live while we show the spinner.
+                    setWaitingActivation(true);
+                    setBuying(null);
+                },
+                modal: { ondismiss: () => setBuying(null) },
+            });
+            rzp.open();
         } catch (err) {
             setBuyError(err instanceof Error ? err.message : "Could not start checkout");
             setBuying(null);
@@ -100,7 +146,14 @@ function UpgradePageInner() {
                 <h1 className="text-2xl font-bold text-text-1 flex items-center gap-2.5">
                     <Crown className="text-accent" size={24} /> Vortex Premium
                 </h1>
-                <p className="text-sm text-text-2 mt-1.5">One-time payments, no auto-renewal. UPI for India, cards worldwide.</p>
+                <p className="text-sm text-text-2 mt-1.5">One-time payments, no auto-renewal. UPI, cards &amp; netbanking (India).</p>
+                <p className="text-xs text-text-3 mt-2">
+                    🌍 Paying from outside India? Email{" "}
+                    <a href={`mailto:${SUPPORT_EMAIL}?subject=Vortex%20Premium%20(international)`} className="text-accent hover:text-accent-strong underline underline-offset-2">
+                        {SUPPORT_EMAIL}
+                    </a>{" "}
+                    — we&apos;ll take payment via PayPal and activate premium with a redeem code.
+                </p>
             </div>
 
             {waitingActivation && !isPremium && (
@@ -219,7 +272,7 @@ function UpgradePageInner() {
                 </ul>
                 <p className="text-[11px] text-text-3 mt-4">
                     Torrents you already added keep running no matter what. Payments are one-time (not subscriptions) and
-                    handled by Dodo Payments; time from multiple purchases and codes always adds up.
+                    handled securely by Razorpay; time from multiple purchases and codes always adds up.
                 </p>
             </div>
         </div>

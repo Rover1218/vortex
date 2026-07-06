@@ -46,7 +46,6 @@ const NAV_ITEMS = [
   { label: "Release Radar", href: "/release-radar", icon: Icon.Radar },
   { label: "Downloads", href: "/downloads", icon: Icon.Download },
   { label: "Library", href: "/library", icon: Icon.Film },
-  { label: "Leaderboard", href: "/leaderboard", icon: Icon.Trophy },
   { label: "Settings", href: "/settings", icon: Icon.Settings },
   { label: "Guide", href: "/guide", icon: Icon.Guide },
 ];
@@ -62,6 +61,8 @@ export default function Sidebar() {
     ...NAV_ITEMS,
     // Lifetime users have nothing left to buy; everyone else can upgrade/extend.
     ...(!isLifetime ? [{ label: "Upgrade", href: "/upgrade", icon: Icon.Crown }] : []),
+    // Leaderboard is an admin-only view (it aggregates every user's stats).
+    ...(isAdmin ? [{ label: "Leaderboard", href: "/leaderboard", icon: Icon.Trophy }] : []),
     ...(isAdmin ? [{ label: "Admin", href: "/admin", icon: Icon.Shield }] : []),
   ];
 
