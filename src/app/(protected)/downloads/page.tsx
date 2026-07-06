@@ -116,7 +116,7 @@ const IconCheckCircle = memo(() => (
 IconCheckCircle.displayName = "IconCheckCircle";
 
 export default function DownloadsPage() {
-    const { torrents, totalDownloadSpeed, totalUploadSpeed, pauseTorrent, resumeTorrent, startSeeding, setTorrentFileSelection, stopSeeding, deleteWithFiles, diskInfo } = useTorrents();
+    const { torrents, totalDownloadSpeed, totalUploadSpeed, pauseTorrent, resumeTorrent, startSeeding, setTorrentFileSelection, stopSeeding, deleteWithFiles, diskInfo, lifetimeDownloaded, lifetimeSeeded } = useTorrents();
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [streamTarget, setStreamTarget] = useState<{ infoHash: string; name: string; fileIdx?: number; time?: number } | null>(null);
     const [continueList, setContinueList] = useState<WatchEntry[]>([]);
@@ -321,6 +321,37 @@ export default function DownloadsPage() {
                     </div>
                 )}
             </div>
+
+            {/* Lifetime totals + storage (moved here from the sidebar) */}
+            {(() => {
+                const fmtB = (b: number, zero = "0 B") => { if (!b || b <= 0) return zero; const k = 1024, u = ["B", "KB", "MB", "GB", "TB"]; const i = Math.floor(Math.log(b) / Math.log(k)); return (b / Math.pow(k, i)).toFixed(1) + " " + u[i]; };
+                const usedPct = diskInfo && diskInfo.total > 0 ? Math.round((diskInfo.used / diskInfo.total) * 100) : 0;
+                return (
+                    <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="rounded-2xl bg-surface border border-white/[0.06] px-5 py-4 shadow-cinema">
+                            <div className="text-[10px] text-text-3 font-bold uppercase tracking-widest mb-1.5">Total Downloaded</div>
+                            <div className="text-xl font-black font-mono text-text-1">{fmtB(lifetimeDownloaded)}</div>
+                        </div>
+                        <div className="rounded-2xl bg-surface border border-white/[0.06] px-5 py-4 shadow-cinema">
+                            <div className="text-[10px] text-text-3 font-bold uppercase tracking-widest mb-1.5">Total Seeded</div>
+                            <div className="text-xl font-black font-mono text-teal">{fmtB(lifetimeSeeded)}</div>
+                        </div>
+                        <div className="rounded-2xl bg-surface border border-white/[0.06] px-5 py-4 shadow-cinema">
+                            <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[10px] text-text-3 font-bold uppercase tracking-widest">Storage</span>
+                                <span className="text-[10px] text-text-2 font-mono">{usedPct}%</span>
+                            </div>
+                            <div className="h-1.5 w-full bg-white/[0.06] rounded-full overflow-hidden mb-1.5">
+                                <div
+                                    className={`h-full rounded-full transition-all duration-700 ${usedPct > 90 ? "bg-danger" : usedPct > 70 ? "bg-warning" : "bg-accent"}`}
+                                    style={{ width: `${usedPct}%` }}
+                                />
+                            </div>
+                            <div className="text-xs text-text-2 font-mono">{diskInfo ? `${fmtB(diskInfo.used)} / ${fmtB(diskInfo.total)}` : "—"}</div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Speed sparkline + disk usage */}
             {torrents.some(t => t.status === "Downloading" || t.status === "Seeding") && (

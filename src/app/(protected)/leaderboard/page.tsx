@@ -12,7 +12,23 @@ type LeaderboardRow = {
     downloaded: number;
     seeded: number;
     ratio: number;
+    premium: "lifetime" | "premium" | null;
 };
+
+function PremiumBadge({ tier }: { tier: "lifetime" | "premium" | null }) {
+    if (!tier) return null;
+    return (
+        <span
+            title={tier === "lifetime" ? "Lifetime Premium" : "Premium"}
+            className={`inline-flex items-center gap-1 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide align-middle ${tier === "lifetime"
+                ? "bg-gradient-to-r from-accent to-accent-strong text-black"
+                : "bg-accent/15 text-accent border border-accent/30"}`}
+        >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="h-2.5 w-2.5"><path d="m2 8 4 10h12l4-10-6 4-4-7-4 7z" /></svg>
+            {tier === "lifetime" ? "Lifetime" : "Premium"}
+        </span>
+    );
+}
 
 function formatBytes(bytes: number) {
     if (!bytes || bytes <= 0) return "0 B";
@@ -199,6 +215,7 @@ export default function LeaderboardPage() {
                                                 {row.displayName}
                                                 {isMe && <span className="ml-1 rounded bg-accent/20 px-1.5 py-0.5 text-[9px] font-black text-accent align-middle">YOU</span>}
                                             </div>
+                                            <PremiumBadge tier={row.premium} />
                                             <div className="text-center text-xs text-teal font-semibold">{formatBytes(row.seeded)}</div>
                                             <div className={`mt-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${ratioChip(row.ratio)}`}>×{formatRatio(row.ratio)}</div>
                                             {/* Pedestal */}
@@ -232,6 +249,7 @@ export default function LeaderboardPage() {
                                                 <div className="flex items-center gap-2">
                                                     <span className="truncate text-sm font-semibold text-text-1">{row.displayName}</span>
                                                     {isMe && <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[9px] font-black text-accent shrink-0">YOU</span>}
+                                                    <PremiumBadge tier={row.premium} />
                                                 </div>
                                                 {/* Seeded bar relative to the top seeder */}
                                                 <div className="mt-1.5 h-1.5 w-full max-w-[260px] overflow-hidden rounded-full bg-white/[0.05]">

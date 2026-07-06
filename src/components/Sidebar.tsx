@@ -53,7 +53,7 @@ const NAV_ITEMS = [
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { diskInfo, torrents, totalDownloadSpeed, totalUploadSpeed, lifetimeDownloaded, lifetimeSeeded } = useTorrents();
+  const { torrents } = useTorrents();
   const { user, signOut } = useAuth();
   const { isPremium, isLifetime, isAdmin } = usePremium();
 
@@ -75,25 +75,6 @@ export default function Sidebar() {
     }
   };
 
-  const formatSize = (bytes: number, zeroLabel = "—") => {
-    if (!bytes || bytes <= 0) return zeroLabel;
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-  };
-
-  const formatSpeed = (bytes: number) => {
-    if (!bytes || bytes <= 0) return "0 B/s";
-    const k = 1024;
-    const sizes = ["B/s", "KB/s", "MB/s", "GB/s"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-  };
-
-  const usedStr = diskInfo ? formatSize(diskInfo.used) : "—";
-  const totalStr = diskInfo ? formatSize(diskInfo.total) : "—";
-  const usedPercent = diskInfo && diskInfo.total > 0 ? Math.round((diskInfo.used / diskInfo.total) * 100) : 0;
   const activeDownloads = torrents.filter(t => t.status === 'Downloading').length;
 
   return (
@@ -139,52 +120,6 @@ export default function Sidebar() {
           })}
         </nav>
 
-        {/* Unified stats panel — LIVE (when active) · Totals · Storage in one card */}
-        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-          {/* Live speed — only while transferring */}
-          {(totalDownloadSpeed > 0 || totalUploadSpeed > 0) && (
-            <div className="px-3.5 py-3 border-b border-white/[0.06] bg-accent/[0.04]">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-teal animate-pulse-glow" />
-                <span className="text-[10px] font-bold text-text-3 uppercase tracking-widest">Live</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm font-mono font-bold">
-                <span className="text-text-1">↓ {formatSpeed(totalDownloadSpeed)}</span>
-                <span className="text-teal ml-auto">↑ {formatSpeed(totalUploadSpeed)}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Totals */}
-          <div className="px-3.5 py-3">
-            <div className="text-[10px] text-text-3 font-bold uppercase tracking-widest mb-2.5">Totals</div>
-            <div className="space-y-2 text-xs font-mono">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-text-3">Downloaded</span>
-                <span className="text-text-1 font-bold">{formatSize(lifetimeDownloaded, "0 B")}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-text-3">Seeded</span>
-                <span className="text-teal font-bold">{formatSize(lifetimeSeeded, "0 B")}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Storage */}
-          <div className="px-3.5 py-3 border-t border-white/[0.06]">
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-[10px] text-text-3 font-bold uppercase tracking-widest">Storage</span>
-              <span className="text-[10px] text-text-2 font-mono">{usedPercent}%</span>
-            </div>
-            <div className="h-1.5 w-full bg-white/[0.06] rounded-full overflow-hidden mb-2">
-              <div
-                className={`h-full rounded-full transition-all duration-700 ${usedPercent > 90 ? 'bg-danger' : usedPercent > 70 ? 'bg-warning' : 'bg-accent'}`}
-                style={{ width: `${usedPercent}%` }}
-              />
-            </div>
-            <div className="text-xs text-text-2 font-mono">{usedStr} / {totalStr}</div>
-          </div>
-        </div>
       </div>
 
       {/* User Profile + Logout */}

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 
+type PremiumTier = 'lifetime' | 'premium' | null;
+
 type LeaderboardRow = {
     rank: number;
     uid: string;
@@ -8,6 +10,7 @@ type LeaderboardRow = {
     downloaded: number;
     seeded: number;
     ratio: number;
+    premium: PremiumTier;
 };
 
 function toNonNegative(value: unknown) {
@@ -66,6 +69,7 @@ export async function GET(req: NextRequest) {
             .slice(0, limit);
 
         const uidToName = new Map<string, string>();
+        const uidToPremium = new Map<string, PremiumTier>();
         await Promise.all(
             baseRows.map(async (row) => {
                 try {
@@ -77,6 +81,22 @@ export async function GET(req: NextRequest) {
                     uidToName.set(row.uid, normalizeDisplayName(rawName));
                 } catch {
                     uidToName.set(row.uid, normalizeDisplayName(maskUid(row.uid)));
+                }
+                try {
+                    const ent = await adminDb
+                        .collection('users').doc(row.uid)
+                        .collection('config').doc('entitlement')
+                        .get();
+                    const data = ent.data();
+                    if (data?.isLifetime) {
+                        uidToPremium.set(row.uid, 'lifetime');
+                    } else if (data?.premiumUntil?.toMillis && data.premiumUntil.toMillis() > Date.now()) {
+                        uidToPremium.set(row.uid, 'premium');
+                    } else {
+                        uidToPremium.set(row.uid, null);
+                    }
+                } catch {
+                    uidToPremium.set(row.uid, null);
                 }
             })
         );
@@ -90,6 +110,7 @@ export async function GET(req: NextRequest) {
             downloaded: row.downloaded,
             seeded: row.seeded,
             ratio: row.ratio,
+            premium: uidToPremium.get(row.uid) ?? null,
         }));
 
         return NextResponse.json({ rows, generatedAt: Date.now() });
