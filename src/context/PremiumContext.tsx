@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "./AuthContext";
 import { isPremiumActive } from "@/lib/premium/entitlement";
 
-export type LimitReason = "download-limit" | "streaming" | "subtitles" | "release-radar";
+export type LimitReason = "download-limit" | "streaming" | "subtitles" | "release-radar" | "speed";
 
 interface EntitlementSnapshot {
     isLifetime: boolean;

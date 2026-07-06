@@ -7,7 +7,7 @@ import { auth } from "@/lib/firebase";
 import { onIdTokenChanged } from "firebase/auth";
 import { useAuth } from './AuthContext';
 import { usePremium } from './PremiumContext';
-import { FREE_MAX_ACTIVE_DOWNLOADS } from '@/lib/premium/plans';
+import { FREE_MAX_ACTIVE_DOWNLOADS, FREE_MAX_DOWNLOAD_MBPS } from '@/lib/premium/plans';
 
 // ─── Types ───
 interface TorrentState {
@@ -75,7 +75,7 @@ const TorrentContext = createContext<TorrentContextType | undefined>(undefined);
 const API_BASE = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3001';
 
 export function TorrentProvider({ children }: { children: React.ReactNode }) {
-    const { isPremium, openLimitModal } = usePremium();
+    const { isPremium, loading: premiumLoading, openLimitModal } = usePremium();
     const [torrents, setTorrents] = useState<TorrentState[]>([]);
     const [totalDownloadSpeed, setTotalDownloadSpeed] = useState(0);
     const [totalUploadSpeed, setTotalUploadSpeed] = useState(0);
@@ -293,6 +293,22 @@ export function TorrentProvider({ children }: { children: React.ReactNode }) {
             fetchDiskInfo();
         } catch (err) { console.error('Update settings failed:', err); }
     };
+
+    // Free tier: cap the download speed. The engine's throttle is driven
+    // entirely by the globalDownloadLimit setting (MB/s, 0 = unlimited), so
+    // clamping the setting is enough — no engine changes needed. Runs once
+    // per session when a free account has an over-cap or unlimited value
+    // (e.g. after a premium plan expires).
+    const speedCapApplied = useRef(false);
+    useEffect(() => {
+        if (premiumLoading || isPremium || !settings || speedCapApplied.current) return;
+        const dl = settings.globalDownloadLimit;
+        if (dl === 0 || dl > FREE_MAX_DOWNLOAD_MBPS) {
+            speedCapApplied.current = true;
+            updateSettings({ globalDownloadLimit: FREE_MAX_DOWNLOAD_MBPS });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [premiumLoading, isPremium, settings]);
 
     const fetchDiskInfo = useCallback(async () => {
         try {

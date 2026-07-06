@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { Crown, Check, Ticket, Loader2, PartyPopper, Gift } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { usePremium } from "@/context/PremiumContext";
-import { PLANS, FIRST_PURCHASE_BONUS_DAYS, type PlanId } from "@/lib/premium/plans";
+import { PLANS, FIRST_PURCHASE_BONUS_DAYS, FREE_MAX_DOWNLOAD_MBPS, type PlanId } from "@/lib/premium/plans";
 
 declare global {
     interface Window {
@@ -36,12 +36,19 @@ function loadRazorpayScript(): Promise<void> {
 
 const PLAN_FEATURES = [
     "Unlimited simultaneous downloads",
+    "Uncapped download speed",
     "Stream while downloading",
     "Automatic subtitles",
     "Release Radar",
 ];
 
-const FREE_FEATURES = ["Search all sources", "2 downloads at a time", "Unlimited seeding", "Watch completed files"];
+const FREE_FEATURES = [
+    "Search all sources",
+    "2 downloads at a time",
+    `Download speed up to ${FREE_MAX_DOWNLOAD_MBPS} MB/s`,
+    "Unlimited seeding",
+    "Watch completed files",
+];
 
 function formatDate(d: Date) {
     return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });

@@ -17,6 +17,10 @@ export const PLANS: Record<PlanId, PlanInfo> = {
 
 export const FREE_MAX_ACTIVE_DOWNLOADS = 2;
 
+// Free-tier download speed cap in MB/s (the engine's globalDownloadLimit unit).
+// Premium/lifetime accounts may set any limit including 0 (unlimited).
+export const FREE_MAX_DOWNLOAD_MBPS = 2;
+
 // Extra days added to a user's FIRST-ever payment (not coupons, not lifetime).
 export const FIRST_PURCHASE_BONUS_DAYS = 30;
 

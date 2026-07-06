@@ -5,10 +5,11 @@ import { motion } from "framer-motion";
 import { Check, Gift, Crown, Zap, ShieldCheck, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { usePremium } from "@/context/PremiumContext";
-import { PLANS, FIRST_PURCHASE_BONUS_DAYS, FREE_MAX_ACTIVE_DOWNLOADS, type PlanId } from "@/lib/premium/plans";
+import { PLANS, FIRST_PURCHASE_BONUS_DAYS, FREE_MAX_ACTIVE_DOWNLOADS, FREE_MAX_DOWNLOAD_MBPS, type PlanId } from "@/lib/premium/plans";
 
 const PREMIUM_FEATURES = [
     "Unlimited simultaneous downloads",
+    "Uncapped download speed",
     "Stream your files while they download",
     "Automatic subtitle fetching",
     "Release Radar calendar",
@@ -17,6 +18,7 @@ const PREMIUM_FEATURES = [
 const FREE_FEATURES = [
     "Multi-source search",
     `${FREE_MAX_ACTIVE_DOWNLOADS} simultaneous downloads`,
+    `Download speed up to ${FREE_MAX_DOWNLOAD_MBPS} MB/s`,
     "Unlimited seeding",
     "Watch completed files",
     "Cloud-synced library & settings",

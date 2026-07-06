@@ -4,7 +4,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Crown, X } from "lucide-react";
 import { usePremium, type LimitReason } from "@/context/PremiumContext";
-import { FREE_MAX_ACTIVE_DOWNLOADS } from "@/lib/premium/plans";
+import { FREE_MAX_ACTIVE_DOWNLOADS, FREE_MAX_DOWNLOAD_MBPS } from "@/lib/premium/plans";
 
 const COPY: Record<LimitReason, { title: string; body: string }> = {
     "download-limit": {
@@ -22,6 +22,10 @@ const COPY: Record<LimitReason, { title: string; body: string }> = {
     "release-radar": {
         title: "Release Radar is Premium",
         body: "Track upcoming movie and show releases with Premium.",
+    },
+    speed: {
+        title: "Full speed is Premium",
+        body: `Free accounts are capped at ${FREE_MAX_DOWNLOAD_MBPS} MB/s download. Go Premium to unlock uncapped speed.`,
     },
 };
 

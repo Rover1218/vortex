@@ -5,6 +5,7 @@ import { usePremium } from "@/context/PremiumContext";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { THEMES, applyTheme, getStoredTheme, DEFAULT_THEME } from "@/lib/themes";
+import { FREE_MAX_DOWNLOAD_MBPS } from "@/lib/premium/plans";
 
 export default function SettingsPage() {
     const { settings, updateSettings, browseFolders } = useTorrents();
@@ -34,22 +35,50 @@ export default function SettingsPage() {
     }, [settings, localSettings]);
 
     // Auto-subtitles are premium: if a user's plan lapsed with the toggle still
-    // on, switch it off once so the engine stops fetching subtitles.
+    // on, switch it off once so the engine stops fetching subtitles. Also keeps
+    // the form in sync when it snapshotted settings before enforcement ran.
     useEffect(() => {
-        if (premiumLoading || isPremium || forcedSubtitleOff.current) return;
-        if ((settings as any)?.autoSubtitle) {
-            forcedSubtitleOff.current = true;
-            updateSettings({ autoSubtitle: false } as any);
+        if (premiumLoading || isPremium) return;
+        if (localSettings?.autoSubtitle) {
             setLocalSettings((prev: any) => (prev ? { ...prev, autoSubtitle: false } : prev));
         }
-    }, [premiumLoading, isPremium, settings, updateSettings]);
+        if (!forcedSubtitleOff.current && (settings as any)?.autoSubtitle) {
+            forcedSubtitleOff.current = true;
+            updateSettings({ autoSubtitle: false } as any);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [premiumLoading, isPremium, settings, localSettings]);
+
+    // Free tier: if the form loaded an over-cap / unlimited speed value before
+    // the automatic clamp applied, reflect the clamped value in the field.
+    useEffect(() => {
+        if (premiumLoading || isPremium || !settings) return;
+        setDlLimitStr((prev) => {
+            const v = parseInt(prev) || 0;
+            if (v !== 0 && v <= FREE_MAX_DOWNLOAD_MBPS) return prev; // legal value — keep user input
+            const enforced = settings.globalDownloadLimit > 0 && settings.globalDownloadLimit <= FREE_MAX_DOWNLOAD_MBPS
+                ? settings.globalDownloadLimit
+                : FREE_MAX_DOWNLOAD_MBPS;
+            return enforced.toString();
+        });
+    }, [premiumLoading, isPremium, settings]);
 
     const handleSave = async () => {
         if (!localSettings) return;
         setIsSaving(true);
+        const requestedDl = parseInt(dlLimitStr) || 0;
+        let dlToSave = requestedDl;
+        // Free tier: download speed is capped (0 = unlimited isn't allowed either).
+        if (!isPremium) {
+            dlToSave = requestedDl === 0 ? FREE_MAX_DOWNLOAD_MBPS : Math.min(requestedDl, FREE_MAX_DOWNLOAD_MBPS);
+            if (dlToSave !== requestedDl) {
+                setDlLimitStr(dlToSave.toString());
+                openLimitModal('speed');
+            }
+        }
         const toSave = {
             ...localSettings,
-            globalDownloadLimit: parseInt(dlLimitStr) || 0,
+            globalDownloadLimit: dlToSave,
             globalUploadLimit: parseInt(ulLimitStr) || 0
         };
         await updateSettings(toSave);
@@ -223,7 +252,14 @@ export default function SettingsPage() {
                     </div>
                     <div className="p-6 grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <label className="text-xs text-text-2 font-medium">Download Limit (MB/s)</label>
+                            <label className="text-xs text-text-2 font-medium flex items-center gap-2 flex-wrap">
+                                <span className="whitespace-nowrap">Download Limit (MB/s)</span>
+                                {!isPremium && (
+                                    <span className="whitespace-nowrap px-1.5 py-0.5 rounded-md bg-accent/15 border border-accent/30 text-accent text-[9px] font-black uppercase tracking-wide" title={`Free accounts are capped at ${FREE_MAX_DOWNLOAD_MBPS} MB/s — Premium unlocks unlimited`}>
+                                        Max {FREE_MAX_DOWNLOAD_MBPS} MB/s
+                                    </span>
+                                )}
+                            </label>
                             <input type="text" value={dlLimitStr}
                                 onChange={(e) => {
                                     const val = e.target.value;
@@ -231,7 +267,9 @@ export default function SettingsPage() {
                                 }}
                                 className="cine-input font-mono"
                             />
-                            <p className="text-[10px] text-text-3">0 = unlimited</p>
+                            <p className="text-[10px] text-text-3">
+                                {isPremium ? "0 = unlimited" : `Free accounts: 1–${FREE_MAX_DOWNLOAD_MBPS} MB/s. Premium removes the cap (0 = unlimited).`}
+                            </p>
                         </div>
                         <div className="space-y-2">
                             <label className="text-xs text-text-2 font-medium">Upload Limit (MB/s)</label>
