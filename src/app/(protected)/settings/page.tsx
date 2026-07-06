@@ -252,7 +252,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="p-6 grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <label className="text-xs text-text-2 font-medium flex items-center gap-2 flex-wrap">
+                            <label className="text-xs text-text-2 font-medium flex items-center gap-2 min-h-[22px]">
                                 <span className="whitespace-nowrap">Download Limit (MB/s)</span>
                                 {!isPremium && (
                                     <span className="whitespace-nowrap px-1.5 py-0.5 rounded-md bg-accent/15 border border-accent/30 text-accent text-[9px] font-black uppercase tracking-wide" title={`Free accounts are capped at ${FREE_MAX_DOWNLOAD_MBPS} MB/s — Premium unlocks unlimited`}>
@@ -268,11 +268,13 @@ export default function SettingsPage() {
                                 className="cine-input font-mono"
                             />
                             <p className="text-[10px] text-text-3">
-                                {isPremium ? "0 = unlimited" : `Free accounts: 1–${FREE_MAX_DOWNLOAD_MBPS} MB/s. Premium removes the cap (0 = unlimited).`}
+                                {isPremium ? "0 = unlimited" : `Free: 1–${FREE_MAX_DOWNLOAD_MBPS} MB/s · Premium removes the cap`}
                             </p>
                         </div>
                         <div className="space-y-2">
-                            <label className="text-xs text-text-2 font-medium">Upload Limit (MB/s)</label>
+                            <label className="text-xs text-text-2 font-medium flex items-center gap-2 min-h-[22px]">
+                                <span className="whitespace-nowrap">Upload Limit (MB/s)</span>
+                            </label>
                             <input type="text" value={ulLimitStr}
                                 onChange={(e) => {
                                     const val = e.target.value;
