@@ -1,129 +1,136 @@
-# 🌀 Vortex Engine
+# 🌀 Vortex
 
-[![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://vercel.com)
-[![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
-[![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)](https://firebase.google.com)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg?style=flat-square)](LICENSE)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![WebTorrent](https://img.shields.io/badge/WebTorrent-core-35b8a0?style=flat-square)](https://webtorrent.io)
+[![Firebase](https://img.shields.io/badge/Firebase-sync-FFCA28?style=flat-square&logo=firebase&logoColor=black)](https://firebase.google.com)
+[![Self-hosted](https://img.shields.io/badge/self--hosted-friendly-6e56cf?style=flat-square)](#-self-hosting)
 
-**Vortex** is a premium, private torrent management ecosystem. It consists of a sleek, cloud-hosted **Next.js Dashboard** and a high-performance, standalone **Node.js Engine** that runs locally on your machine for maximum privacy and speed.
+**A self-hosted download manager with a streaming dashboard.** Vortex pairs a beautiful, cloud-accessible web UI with a local engine that runs entirely on your own machine — so you get a modern dashboard you can open from any device, while every file stays on your hardware. Search, download, stream-while-downloading, auto-subtitles, and a media library — all yours, all local.
+
+> **Local-first by design.** Vortex hosts, serves, and streams nothing itself. The engine runs on *your* computer; your files live on *your* disk. The cloud only syncs your settings and library index across your devices.
+
+<!-- 📸 SCREENSHOT: replace with a wide hero shot of the dashboard (Search or Downloads page) -->
+<p align="center">
+  <img src="docs/screenshots/hero.png" alt="Vortex dashboard" width="820" />
+</p>
 
 ---
 
 ## ✨ Features
 
-- 🔍 **Multi-Source Search**: Search across ThePirateBay, Nyaa, AnimeTosho, and TorrentCSV simultaneously.
-- ⚡ **WebTorrent Core**: High-speed, memory-efficient torrenting engine.
-- ☁️ **Cloud Sync**: Firebase-powered authentication and state management. Sync your library across devices.
-- 🎬 **Poster Art & Metadata**: Automatic fetching of movie posters and TV show details.
-- 🔒 **Privacy-First**: Your torrent data and files stay on your local machine.
-- 💎 **Premium Interface**: Modern, dark-mode UI with glassmorphism and smooth animations.
+- ⚡ **WebTorrent engine** — high-speed, memory-efficient downloading and seeding, running locally.
+- 🎬 **Stream while downloading** — start watching before a file finishes; 4K/x265 is transcoded to play right in your browser.
+- 💬 **Automatic subtitles** — fetches matching subtitles from OpenSubtitles when a download completes.
+- 🔍 **Multi-source search** — one search box across several public indexers at once.
+- 🖼️ **Poster art & metadata** — automatic artwork and details for movies and shows (TMDB, with free fallbacks).
+- ☁️ **Cross-device sync** — sign in with Google; your settings and library index follow you, powered by Firebase.
+- 📊 **Library & ratio tracking** — organized media library, seeding stats, and a ratio coach.
+- 🎨 **12 built-in themes** — Terminal, Synthwave, Aurora, Sakura, and more; switch instantly.
+- 🔒 **Private & local** — files never touch a server you don't control.
+
+<!-- 📸 SCREENSHOT: a 2x2 grid or a few shots — Downloads, Library, Settings (themes), the streaming player -->
+<p align="center">
+  <img src="docs/screenshots/downloads.png" alt="Downloads" width="400" />
+  <img src="docs/screenshots/library.png" alt="Library" width="400" />
+</p>
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ How it works
 
-Vortex uses a **Client-Side Engine** architecture:
-1. **Frontend (Vercel)**: The beautiful web interface handles searching, library management, and sync.
-2. **Engine (Local EXE)**: A standalone Windows executable (`vortex.exe`) that handles the actual downloading, seeding, and file management on your computer.
+Vortex has two pieces:
 
-This setup gives you the best of both worlds: a cloud-accessible dashboard with the raw power and privacy of local downloading.
+1. **Dashboard (web)** — a Next.js app (deployable to Vercel or any Node host) that handles the UI: searching, library management, streaming player, and settings. It talks to your local engine.
+2. **Engine (local)** — a small standalone server that runs on *your* machine and does the actual downloading, seeding, transcoding, and file management. It listens on `localhost:3001` and the dashboard connects to it.
 
----
+```
+┌──────────────────┐        ┌───────────────────────────┐
+│  Vortex Dashboard│  HTTPS │  Your device               │
+│  (Next.js / web) │◀──────▶│  Vortex Engine (localhost) │
+│  search • library│        │  WebTorrent • files • disk │
+└──────────────────┘        └───────────────────────────┘
+        ▲
+        │ settings + library index only
+        ▼
+   Firebase (your project)
+```
 
-## 🚀 Getting Started
-
-### 1. Web Dashboard
-The frontend is built with Next.js 15 and can be deployed to Vercel in seconds.
-- **Deploy**: Connect your repo to Vercel and set the Root Directory to `vortex`.
-- **Environment Variables**: Add your Firebase keys (from `.env.local`) to Vercel settings.
-
-### 2. Standalone Engine
-To start downloading, you need the **Vortex Engine** running on your computer.
-- **Download**: Get the latest installer from the [Official Release (v0.1.5)](https://github.com/Rover1218/vortex/releases/tag/0.1.5) — download `Vortex-Setup-0.1.0.exe`.
-- **Run**: Simply open the EXE. It will start a local server on port `3001` and automatically connect to your dashboard.
-
----
-
-## 💎 Premium & Payments
-
-Vortex has a free tier and paid premium plans, all one-time payments (no auto-renewal):
-
-| Plan | India | International | Grants |
-|------|-------|---------------|--------|
-| Free | — | — | Search, 2 simultaneous downloads, unlimited seeding, watch completed files |
-| 1 Month | ₹89 | $1 | 30 days premium |
-| 6 Months | ₹449 | $5 | 180 days premium |
-| Lifetime | ₹3,299 | $40 | Premium forever |
-
-**Premium unlocks:** unlimited simultaneous downloads, streaming while downloading, auto-subtitles, and Release Radar. Time from purchases and redeem codes always stacks. Existing torrents are never interrupted — the free limit only applies when adding new ones.
-
-### How it works
-
-- Payments run through [Razorpay](https://razorpay.com) (UPI, cards, netbanking — India). A `payment.captured` webhook auto-activates premium seconds after payment — no manual steps. International users email the owner and pay via PayPal, receiving a redeem code.
-- Premium status lives in `users/{uid}/config/entitlement`, written **only** by the server (see `firestore.rules`). Clients can read it, never write it.
-- Coupon codes (`VTX-XXXX-XXXX-XXXX`) are generated on the owner-only `/admin` page, stored **hashed**, single-use, and support 1/3/6/12-month and lifetime durations.
-
-### Owner setup
-
-1. Create a Razorpay account and complete KYC (individuals supported).
-2. Dashboard → Account & Settings → API Keys → generate keys (`rzp_test_*` first).
-3. Dashboard → Webhooks → add `https://<your-domain>/api/premium/webhook`, subscribe it to `payment.captured`, and set a webhook secret.
-4. Fill `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `ADMIN_UID`, and `NEXT_PUBLIC_*` variables (see `.env.example`) in Vercel.
-5. Do one test-mode payment end-to-end before switching to live keys.
-
-If the payment provider is unavailable, coupon redemption on `/upgrade` and manual grants on `/admin` keep working as the fallback sales channel.
+You get the best of both: a polished, cloud-accessible dashboard, with the privacy and speed of downloading locally.
 
 ---
 
-## 🛠️ Local Development
+## 🚀 Self-hosting
 
-To run the full stack locally:
+Vortex is meant to be self-hosted. You bring your own Firebase project and (optionally) your own deployment of the dashboard.
+
+### 1. Clone & install
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/vortex.git
+git clone https://github.com/Rover1218/vortex.git
 cd vortex
-
-# Install dependencies
 npm install
-
-# Run both Frontend & Engine in dev mode
-npm run dev:full
 ```
 
----
+### 2. Configure
 
-## 📦 Building the Engine
+Copy `.env.example` to `.env.local` and fill in your own **Firebase** keys (create a free project at [console.firebase.google.com](https://console.firebase.google.com), enable Google sign-in and Firestore).
 
-If you want to build the standalone EXE yourself (with your own Firebase credentials embedded):
+Optional keys for extra features: a free [TMDB](https://www.themoviedb.org/settings/api) key for the best posters, and a free [OpenSubtitles](https://www.opensubtitles.com/consumers) key for subtitles. Everything else works without them.
 
-1. Put your `vortex-firebase-adminsdk.json` in the root.
-2. Run the build command:
+### 3. Run it locally
+
 ```bash
-npm run build:engine:exe
+npm run dev:full   # runs the dashboard + engine together
 ```
-The result will be in `public/downloads/vortex.exe`.
+
+Open `http://localhost:3000`, sign in with Google, and you're downloading.
+
+### 4. (Optional) Deploy the dashboard
+
+The dashboard deploys to Vercel in a click — connect the repo and add your Firebase env vars. The engine always stays on your own machine.
 
 ---
 
-## 🛡️ Security & Privacy
+## 📦 Building the desktop engine
 
-Vortex is a private, personal tool. Because the **Vortex Engine** is a new, unsigned standalone executable that performs network-intensive torrenting tasks, you may see warnings from **Windows SmartScreen** or **Antivirus** software.
+To produce the standalone Windows engine (`vortex.exe`) with your own credentials baked in:
 
-### ⚠️ Why is it flagged?
-1. **Unsigned Executable**: To avoid the $300+/year cost of a Code Signing Certificate, the engine is currently unsigned.
-2. **New Application**: Microsoft SmartScreen takes time to "learn" that a new application is safe.
-3. **Torrenting Activity**: The engine uses `webtorrent`, which opens multiple peer-to-peer connections. This behavior is often flagged by generic antivirus heuristics.
+```bash
+npm run build:engine:exe   # output in public/downloads/vortex.exe
+```
 
-### ✅ How to Run Safely
-1. When you see "Windows protected your PC", click **"More info"**.
-2. Click **"Run anyway"**.
-3. If your antivirus blocks it, you may need to add an exception for `vortex.exe`.
+Because the engine is an unsigned executable that opens many peer-to-peer connections, Windows SmartScreen or antivirus may warn on first run — click **More info → Run anyway**, or build it yourself from source (above) so you know exactly what's inside.
 
-**Note**: Vortex is open-source. You can always audit the code in `server.mjs` and build the executable yourself using `npm run build:engine:exe`.
+---
+
+## 🧰 Tech stack
+
+- **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS, Framer Motion
+- **Engine:** Node.js, [WebTorrent](https://webtorrent.io), Express, ffmpeg (transcoding)
+- **Auth & sync:** Firebase Auth (Google) + Firestore
+- **Desktop:** Electron + electron-builder
+
+---
+
+## 💛 Support the project
+
+Vortex is free and open source (AGPL-3.0). There's an **optional** paid tier that unlocks convenience features (uncapped speed, unlimited simultaneous downloads, auto-subtitles, a release calendar) and helps fund development — but the core is fully usable for free, and if you self-host you configure it however you like. See the in-app upgrade page for details.
+
+---
+
+## 🤝 Contributing
+
+Issues and pull requests are welcome. If you're filing a bug, include your OS, Node version, and steps to reproduce. If you're adding a feature, open an issue first so we can talk through the approach.
+
+---
+
+## ⚖️ Legal
+
+Vortex is a general-purpose download and media-management tool. It does not host, provide, or distribute any content. **You are responsible for what you download and for complying with the laws of your country and the rights of copyright holders.** Use it for Linux ISOs, public-domain media, your own files, and other lawful content.
 
 ---
 
 ## 📜 License
-This project is for personal use and educational purposes. Ensure you comply with local laws regarding torrenting.
 
----
+[GNU AGPL-3.0](LICENSE) © Anindya Kanti Das. If you run a modified version as a network service, you must make your source available under the same license.

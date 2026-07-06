@@ -1,8 +1,9 @@
 {
   "name": "vortex",
   "version": "0.1.9",
-  "description": "Private torrent dashboard and desktop launcher.",
-  "author": "Anindya",
+  "description": "Self-hosted download manager with a streaming dashboard.",
+  "author": "Anindya Kanti Das",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "private": true,
   "main": "electron/main.mjs",
