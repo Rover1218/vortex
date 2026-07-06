@@ -4,6 +4,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Check, Gift, Crown, Zap, ShieldCheck, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { usePremium } from "@/context/PremiumContext";
 import { PLANS, FIRST_PURCHASE_BONUS_DAYS, FREE_MAX_ACTIVE_DOWNLOADS, type PlanId } from "@/lib/premium/plans";
 
 const PREMIUM_FEATURES = [
@@ -23,6 +24,7 @@ const FREE_FEATURES = [
 
 export default function PricingPage() {
     const { user } = useAuth();
+    const { firstPurchaseUsed } = usePremium();
     const ctaHref = user ? "/upgrade" : "/login";
     const ctaLabel = user ? "Go to your plan" : "Sign in to get Premium";
 
@@ -105,7 +107,7 @@ export default function PricingPage() {
                                 <div className="text-xs text-text-3 mt-1">
                                     {plan.durationDays === null ? "Pay once, premium forever" : `${plan.durationDays} days of premium`}
                                 </div>
-                                {plan.durationDays !== null && (
+                                {plan.durationDays !== null && !firstPurchaseUsed && (
                                     <div className="mt-2 self-start inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-teal/10 border border-teal/30 text-[10px] font-bold text-teal">
                                         <Gift size={11} /> First purchase: +{FIRST_PURCHASE_BONUS_DAYS} days free
                                     </div>

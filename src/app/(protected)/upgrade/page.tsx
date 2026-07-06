@@ -48,7 +48,7 @@ function formatDate(d: Date) {
 }
 
 function UpgradePageInner() {
-    const { isPremium, isLifetime, premiumUntil, loading } = usePremium();
+    const { isPremium, isLifetime, premiumUntil, firstPurchaseUsed, loading } = usePremium();
     const searchParams = useSearchParams();
     const cameFromPayment = searchParams.get("status") === "success";
 
@@ -199,7 +199,7 @@ function UpgradePageInner() {
                             <div className="text-xs text-text-3 mt-1">
                                 {plan.durationDays === null ? "Pay once, premium forever" : `${plan.durationDays} days of premium`}
                             </div>
-                            {plan.durationDays !== null && (
+                            {plan.durationDays !== null && !firstPurchaseUsed && (
                                 <div className="mt-2 self-start inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-teal/10 border border-teal/30 text-[10px] font-bold text-teal">
                                     <Gift size={11} /> First purchase: +{FIRST_PURCHASE_BONUS_DAYS} days free
                                 </div>

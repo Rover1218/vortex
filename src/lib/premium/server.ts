@@ -49,15 +49,18 @@ function applyGrantTxn(
   grant: Grant,
   source: 'payment' | 'coupon' | 'admin',
   planLabel: string,
+  extraFields: Record<string, unknown> = {},
 ) {
   const next = computeGrant(current, grant, Date.now());
+  // merge: preserves flags like firstPurchaseUsed across later coupon/admin grants.
   txn.set(entitlementRef(uid), {
+    ...extraFields,
     plan: next.isLifetime ? 'lifetime' : planLabel,
     isLifetime: next.isLifetime,
     premiumUntil: next.premiumUntilMs === null ? null : Timestamp.fromMillis(next.premiumUntilMs),
     source,
     updatedAt: FieldValue.serverTimestamp(),
-  });
+  }, { merge: true });
 }
 
 export async function applyGrant(
@@ -103,7 +106,9 @@ export async function grantPaymentOnce(
       FIRST_PURCHASE_BONUS_DAYS,
     );
     txn.set(payRef, { ...record, firstPurchaseBonusDays: bonusDays, createdAt: FieldValue.serverTimestamp() });
-    applyGrantTxn(txn, uid, toCore(entSnap.data()), effectiveGrant, 'payment', planLabel);
+    // firstPurchaseUsed is display-only (hides the bonus badge in the UI);
+    // the bonus decision itself always comes from the payments ledger above.
+    applyGrantTxn(txn, uid, toCore(entSnap.data()), effectiveGrant, 'payment', planLabel, { firstPurchaseUsed: true });
     return { credited: true, bonusDays };
   });
 }

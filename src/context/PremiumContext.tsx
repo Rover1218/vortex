@@ -12,6 +12,7 @@ interface EntitlementSnapshot {
     isLifetime: boolean;
     premiumUntilMs: number | null;
     plan: string;
+    firstPurchaseUsed: boolean;
 }
 
 interface PremiumContextType {
@@ -19,6 +20,8 @@ interface PremiumContextType {
     isLifetime: boolean;
     plan: string;
     premiumUntil: Date | null;
+    /** True once the account has made any payment — hides the first-purchase bonus badge. */
+    firstPurchaseUsed: boolean;
     loading: boolean;
     isAdmin: boolean;
     limitModalOpen: boolean;
@@ -32,6 +35,7 @@ const PremiumContext = createContext<PremiumContextType>({
     isLifetime: false,
     plan: "free",
     premiumUntil: null,
+    firstPurchaseUsed: false,
     loading: true,
     isAdmin: false,
     limitModalOpen: false,
@@ -68,6 +72,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
                         isLifetime: !!data.isLifetime,
                         premiumUntilMs: data.premiumUntil instanceof Timestamp ? data.premiumUntil.toMillis() : null,
                         plan: typeof data.plan === "string" ? data.plan : "free",
+                        firstPurchaseUsed: !!data.firstPurchaseUsed,
                     });
                 }
                 setLoading(false);
@@ -97,6 +102,7 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
             isLifetime: !!ent?.isLifetime,
             plan: isPremium ? (ent?.plan ?? "free") : "free",
             premiumUntil: ent?.premiumUntilMs ? new Date(ent.premiumUntilMs) : null,
+            firstPurchaseUsed: !!ent?.firstPurchaseUsed,
             loading,
             isAdmin: !!user && !!process.env.NEXT_PUBLIC_ADMIN_UID && user.uid === process.env.NEXT_PUBLIC_ADMIN_UID,
             limitModalOpen,
