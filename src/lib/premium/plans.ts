@@ -18,8 +18,15 @@ export const PLANS: Record<PlanId, PlanInfo> = {
 export const FREE_MAX_ACTIVE_DOWNLOADS = 2;
 
 // Free-tier download speed cap in MB/s (the engine's globalDownloadLimit unit).
-// Premium/lifetime accounts may set any limit including 0 (unlimited).
+// Premium/lifetime accounts may set any limit including "unlimited".
 export const FREE_MAX_DOWNLOAD_MBPS = 2;
+
+// Premium "unlimited" is sent to the engine as this large FINITE MB/s value,
+// not 0. The engine's throttle updates reliably between finite rates while a
+// download is live, but setting it to Infinity (the 0 path) fails to release
+// already-throttled peer connections until the engine restarts. A finite value
+// far above any real connection is effectively unlimited and applies instantly.
+export const UNLIMITED_SENTINEL_MBPS = 5000;
 
 // Extra days added to a user's FIRST-ever payment (not coupons, not lifetime).
 export const FIRST_PURCHASE_BONUS_DAYS = 30;

@@ -5,7 +5,7 @@ import { usePremium } from "@/context/PremiumContext";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { THEMES, applyTheme, getStoredTheme, DEFAULT_THEME } from "@/lib/themes";
-import { FREE_MAX_DOWNLOAD_MBPS } from "@/lib/premium/plans";
+import { FREE_MAX_DOWNLOAD_MBPS, UNLIMITED_SENTINEL_MBPS } from "@/lib/premium/plans";
 
 export default function SettingsPage() {
     const { settings, updateSettings, browseFolders } = useTorrents();
@@ -29,10 +29,25 @@ export default function SettingsPage() {
     useEffect(() => {
         if (settings && !localSettings) {
             setLocalSettings(settings);
-            setDlLimitStr(settings.globalDownloadLimit.toString());
+            // The finite "unlimited" sentinel displays as 0 (unlimited) in the field.
+            setDlLimitStr(settings.globalDownloadLimit >= UNLIMITED_SENTINEL_MBPS ? "0" : settings.globalDownloadLimit.toString());
             setUlLimitStr(settings.globalUploadLimit.toString());
         }
     }, [settings, localSettings]);
+
+    // Premium "unlimited" is stored as a finite sentinel so the engine uncaps
+    // live (see UNLIMITED_SENTINEL_MBPS). Heal premium accounts that still have
+    // 0 stored — from before this fix, or set while they were on the free tier —
+    // so their speed lifts without needing an engine restart.
+    const healedUnlimited = useRef(false);
+    useEffect(() => {
+        if (premiumLoading || !isPremium || !settings || healedUnlimited.current) return;
+        if (settings.globalDownloadLimit === 0) {
+            healedUnlimited.current = true;
+            updateSettings({ globalDownloadLimit: UNLIMITED_SENTINEL_MBPS } as any);
+            setDlLimitStr("0");
+        }
+    }, [premiumLoading, isPremium, settings, updateSettings]);
 
     // Auto-subtitles are premium: if a user's plan lapsed with the toggle still
     // on, switch it off once so the engine stops fetching subtitles. Also keeps
@@ -75,6 +90,10 @@ export default function SettingsPage() {
                 setDlLimitStr(dlToSave.toString());
                 openLimitModal('speed');
             }
+        } else if (requestedDl === 0) {
+            // Premium "unlimited" → finite sentinel so the engine lifts the cap
+            // live (the 0/Infinity path needs an engine restart to take effect).
+            dlToSave = UNLIMITED_SENTINEL_MBPS;
         }
         const toSave = {
             ...localSettings,
