@@ -31,7 +31,7 @@ const parseTorrent = pt.default || pt;
 
 const WebTorrentModule = WebTorrentImport.default || WebTorrentImport;
 
-const VERSION = "0.1.9";
+const VERSION = "0.2.0";
 // For testing locally, it will try localhost:3000 if the Vercel site is not deployed with the proxy yet.
 let PROXY_URL = 'https://vortex-movies.vercel.app/api/sync';
 
@@ -171,6 +171,24 @@ async function startServer() {
         try { activeUserToken = JSON.parse(fs.readFileSync(AUTH_TOKEN_FILE, 'utf-8')).token; } catch (e) { }
     }
 
+    // ─── Premium entitlement (engine-enforced free-tier speed cap) ───
+    // The free tier is capped in MB/s. This must match FREE_MAX_DOWNLOAD_MBPS in
+    // src/lib/premium/plans.ts — keep the two in sync.
+    const FREE_MAX_DOWNLOAD_MBPS = 2;
+    const ENTITLEMENT_FILE = path.join(DATA_DIR, 'local-entitlement.json');
+    // Default before we know: assume premium so we NEVER wrongly throttle a paying
+    // customer during a transient network/status-check failure. Last-known status
+    // is persisted, so a free account stays capped across restarts even offline.
+    let entitlement = { isPremium: true, isLifetime: false };
+    if (fs.existsSync(ENTITLEMENT_FILE)) {
+        try {
+            const saved = JSON.parse(fs.readFileSync(ENTITLEMENT_FILE, 'utf-8'));
+            entitlement = { isPremium: !!saved.isPremium, isLifetime: !!saved.isLifetime };
+        } catch (e) { /* keep default */ }
+    }
+    let lastEntitlementFetchAt = 0;
+    let entitlementFetchInFlight = false;
+
     const SYNC_MIN_INTERVAL_MS = {
         settings: 1000,
         stats: 15000,
@@ -307,6 +325,38 @@ async function startServer() {
         return null;
     }
 
+    // Ask the cloud whether this account is premium, then enforce the cap locally.
+    // On any failure we keep the last-known status (never throttle a payer on a
+    // transient error). Re-applies bandwidth immediately when the status changes.
+    async function fetchEntitlement(reason = 'manual') {
+        if (!activeUserToken || entitlementFetchInFlight) return;
+        if (Date.now() - lastEntitlementFetchAt < 5000) return;
+        entitlementFetchInFlight = true;
+        try {
+            const statusUrl = PROXY_URL.replace('/api/sync', '/api/premium/status');
+            const res = await fetch(statusUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: activeUserToken }),
+            });
+            if (!res.ok) return; // keep last-known
+            const data = await res.json();
+            const next = { isPremium: !!data.isPremium, isLifetime: !!data.isLifetime };
+            const changed = next.isPremium !== entitlement.isPremium || next.isLifetime !== entitlement.isLifetime;
+            entitlement = next;
+            lastEntitlementFetchAt = Date.now();
+            try { fs.writeFileSync(ENTITLEMENT_FILE, JSON.stringify(entitlement)); } catch { /* best effort */ }
+            if (changed) {
+                applyBandwidthLimits();
+                console.log(`⚡ Premium status (${reason}): ${entitlement.isPremium ? (entitlement.isLifetime ? 'lifetime' : 'premium') : 'free — download capped at ' + FREE_MAX_DOWNLOAD_MBPS + ' MB/s'}`);
+            }
+        } catch (err) {
+            if (process.env.VORTEX_DEBUG) console.error('[Premium] entitlement fetch failed:', err.message);
+        } finally {
+            entitlementFetchInFlight = false;
+        }
+    }
+
     // ─── Windows Protocol Registration (Auto-Open) ───
     function registerProtocol() {
         // Disabled: Protocol handled exclusively by Electron Desktop Shell to prevent overwriting
@@ -363,6 +413,7 @@ async function startServer() {
             fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token }));
             lastSyncErrorStatus = null;
             hydrateSettingsFromCloud('http-auth').catch(() => { });
+            fetchEntitlement('http-auth').catch(() => { });
             setTimeout(() => syncAllStateToCloud('http-auth'), 250);
         }
         next();
@@ -380,6 +431,7 @@ async function startServer() {
         if (tokenChanged) {
             fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token }));
             hydrateSettingsFromCloud('socket-auth').catch(() => { });
+            fetchEntitlement('socket-auth').catch(() => { });
             setTimeout(() => syncAllStateToCloud('socket-auth'), 250);
         }
         next();
@@ -395,6 +447,7 @@ async function startServer() {
                 if (tokenChanged) {
                     fs.writeFileSync(AUTH_TOKEN_FILE, JSON.stringify({ token: data.token }));
                     hydrateSettingsFromCloud('socket-update-token').catch(() => { });
+                    fetchEntitlement('socket-update-token').catch(() => { });
                     setTimeout(() => syncAllStateToCloud('socket-update-token'), 250);
                 }
             }
@@ -525,7 +578,12 @@ async function startServer() {
             if (!hydrated) return;
             console.log(`⚙ Settings synced from cloud: path=${settings.downloadPath} dl=${settings.globalDownloadLimit} ul=${settings.globalUploadLimit}`);
         });
+        fetchEntitlement('startup').catch(() => { });
     }
+
+    // Re-check premium every 5 minutes so an expired plan gets the free cap
+    // re-applied even if the user never reopens the web dashboard.
+    setInterval(() => { fetchEntitlement('interval').catch(() => { }); }, 5 * 60 * 1000);
     function saveSettings() {
         settings = normalizeSettings(settings);
         writeJsonAtomic(SETTINGS_FILE, settings);
@@ -542,6 +600,15 @@ async function startServer() {
     const magnetsByHash = new Map(); // tracks original magnet URIs by infoHash
     const addedAtMap = new Map();   // tracks when each torrent was first added
     const namesMap = new Map();     // persistent name store — survives state transitions
+    // The directory each torrent's files actually live in. Lets stream/delete/library
+    // find files even after the user changes the global download path (old torrents
+    // keep resolving to where they were really saved, not the current setting).
+    const savedPathByHash = new Map();
+    function savedDirFor(hash) {
+        const live = client?.torrents?.find(t => t && t.infoHash === hash);
+        if (live?.path) return live.path;
+        return savedPathByHash.get(hash) || settings.downloadPath;
+    }
     const pausedFilesByHash = new Map(); // tracks per-file paused state while torrent is active
     const ephemeralHashes = new Set();  // Quick-Watch torrents: streamed from a temp store, fetch-on-demand, never saved, auto-removed on stop
     // Quick-Watch temp store lives UNDER the user's chosen download path (same drive),
@@ -762,12 +829,15 @@ async function startServer() {
             if (ephemeralHashes.has(t.infoHash)) continue; // Quick-Watch streams are never persisted
             const name = t.name || namesMap.get(t.infoHash) || getNameFromMagnet(magnetsByHash.get(t.infoHash));
             if (name) namesMap.set(t.infoHash, name);
+            if (t.path) savedPathByHash.set(t.infoHash, t.path); // keep the save-path map current
+            const savedPath = t.path || savedPathByHash.get(t.infoHash) || settings.downloadPath;
             const uploadedNow = resolveUploaded(t.downloaded || 0, t.uploaded, t.ratio);
             if (t.progress === 1) {
                 list.push({
                     name,
                     infoHash: t.infoHash,
                     state: 'seeding',
+                    savedPath,
                     magnet: t.magnetURI || magnetsByHash.get(t.infoHash),
                     downloaded: t.downloaded,
                     uploaded: uploadedNow,
@@ -776,12 +846,12 @@ async function startServer() {
                     addedAt: addedAtMap.get(t.infoHash) || Date.now()
                 });
             } else {
-                list.push({ magnet: t.magnetURI || magnetsByHash.get(t.infoHash), name, infoHash: t.infoHash, state: 'active', addedAt: addedAtMap.get(t.infoHash) || Date.now() });
+                list.push({ magnet: t.magnetURI || magnetsByHash.get(t.infoHash), name, infoHash: t.infoHash, state: 'active', savedPath, addedAt: addedAtMap.get(t.infoHash) || Date.now() });
             }
         }
         for (const [hash, data] of pausedTorrents.entries()) {
             const name = data.name || namesMap.get(hash) || getNameFromMagnet(data.magnet);
-            list.push({ magnet: data.magnet, name, infoHash: hash, state: 'paused', progress: data.progress, downloaded: data.downloaded, totalLength: data.totalLength, addedAt: data.addedAt || Date.now() });
+            list.push({ magnet: data.magnet, name, infoHash: hash, state: 'paused', savedPath: savedPathByHash.get(hash) || settings.downloadPath, progress: data.progress, downloaded: data.downloaded, totalLength: data.totalLength, addedAt: data.addedAt || Date.now() });
         }
         for (const [hash, data] of completedTorrents.entries()) {
             const name = data.name || namesMap.get(hash);
@@ -789,6 +859,7 @@ async function startServer() {
                 name,
                 infoHash: hash,
                 state: 'completed',
+                savedPath: savedPathByHash.get(hash) || settings.downloadPath,
                 magnet: data.magnet || magnetsByHash.get(hash),
                 downloaded: data.downloaded,
                 uploaded: data.uploaded || 0,
@@ -800,6 +871,23 @@ async function startServer() {
         writeJsonAtomic(TORRENTS_FILE, list);
         queueSyncToCloud('torrents', list);
     }
+
+    // Re-check whether completed torrents' files still exist on disk, so a file the
+    // user deletes WHILE the engine is running flips to "missing" live (not just at
+    // the next restart). Emits are driven by the 1s status loop, which reads .missing.
+    function refreshMissingFlags() {
+        for (const [hash, data] of completedTorrents.entries()) {
+            if (!data.name) continue;
+            let present = true;
+            try {
+                present = fs.existsSync(path.join(savedDirFor(hash), data.name)) ||
+                    fs.existsSync(path.join(settings.downloadPath, data.name));
+            } catch { present = true; } // on any FS error, don't wrongly flag missing
+            // The 1s status loop emits data.missing, so updating it here is enough.
+            data.missing = !present;
+        }
+    }
+    setInterval(refreshMissingFlags, 30000);
 
     // ─── Search Engine ───
     let searchReady = true;
@@ -1236,8 +1324,18 @@ async function startServer() {
 
     // Apply bandwidth limits — also propagates to currently active torrent wires
     function applyBandwidthLimits() {
+        // Free tier: hard-cap download at FREE_MAX regardless of the stored value
+        // (which may be 0 = unlimited, or the finite "unlimited" sentinel left over
+        // from when the account was premium). Premium honors the setting as-is.
+        // This is enforced in the engine so it holds even after a plan expires and
+        // whether or not the web dashboard is ever opened.
+        const requestedDlMbps = settings.globalDownloadLimit;
+        const effectiveDlMbps = entitlement.isPremium
+            ? requestedDlMbps
+            : (requestedDlMbps === 0 ? FREE_MAX_DOWNLOAD_MBPS : Math.min(requestedDlMbps, FREE_MAX_DOWNLOAD_MBPS));
+
         // -1 means unlimited in our internal logic
-        const dlRate = settings.globalDownloadLimit > 0 ? Math.round(settings.globalDownloadLimit * 1024 * 1024) : -1;
+        const dlRate = effectiveDlMbps > 0 ? Math.round(effectiveDlMbps * 1024 * 1024) : -1;
         const ulRate = settings.globalUploadLimit > 0 ? Math.round(settings.globalUploadLimit * 1024 * 1024) : -1;
 
         // Use Infinity for unlimited to avoid throttle-group issues
@@ -1257,9 +1355,10 @@ async function startServer() {
             }
         }
 
-        const dlLabel = dlRate < 0 ? '∞' : settings.globalDownloadLimit + ' MB/s';
+        const dlLabel = dlRate < 0 ? '∞' : effectiveDlMbps + ' MB/s';
         const ulLabel = ulRate < 0 ? '∞' : settings.globalUploadLimit + ' MB/s';
-        console.log(`⚡ Bandwidth: DL=${dlLabel} UL=${ulLabel}`);
+        const capNote = !entitlement.isPremium && effectiveDlMbps !== requestedDlMbps ? ' (free cap)' : '';
+        console.log(`⚡ Bandwidth: DL=${dlLabel}${capNote} UL=${ulLabel}`);
     }
     applyBandwidthLimits();
 
@@ -1274,7 +1373,20 @@ async function startServer() {
                 // Restore name into namesMap immediately so it's available everywhere
                 if (st.infoHash && st.name) namesMap.set(st.infoHash, st.name);
 
+                // Remember where this torrent's files actually live so stream/delete/
+                // library keep working after the global download path is changed.
+                const restoredDir = st.savedPath || settings.downloadPath;
+                if (st.infoHash) savedPathByHash.set(st.infoHash, restoredDir);
+
                 if (st.state === 'completed') {
+                    // Flag entries whose files aren't on this machine (e.g. deleted, or
+                    // a different PC than where they were downloaded) so the UI can show
+                    // them as missing instead of offering broken Stream/Seed actions.
+                    let missing = false;
+                    try {
+                        missing = !!st.name && !fs.existsSync(path.join(restoredDir, st.name)) &&
+                            !fs.existsSync(path.join(settings.downloadPath, st.name));
+                    } catch { missing = false; }
                     completedTorrents.set(st.infoHash, {
                         name: st.name,
                         magnet: st.magnet,
@@ -1282,7 +1394,8 @@ async function startServer() {
                         uploaded: st.uploaded || 0,
                         ratio: st.ratio || 0,
                         totalLength: st.totalLength,
-                        addedAt: st.addedAt
+                        addedAt: st.addedAt,
+                        missing
                     });
                     if (st.magnet) magnetsByHash.set(st.infoHash, st.magnet);
                     restoredHashes.add(st.infoHash);
@@ -1291,7 +1404,7 @@ async function startServer() {
                     if (st.infoHash) magnetsByHash.set(st.infoHash, st.magnet);
                     if (st.infoHash && st.addedAt) addedAtMap.set(st.infoHash, st.addedAt);
                     try {
-                        const torrent = client.add(st.magnet, getTorrentAddOptions(st.magnet, settings.downloadPath), (torrent) => {
+                        const torrent = client.add(st.magnet, getTorrentAddOptions(st.magnet, restoredDir), (torrent) => {
                             const resolvedName = torrent.name || st.name || getNameFromMagnet(st.magnet);
                             if (resolvedName) namesMap.set(torrent.infoHash, resolvedName);
                             console.log(`  ▶ Restored seeding: ${resolvedName || torrent.infoHash}`);
@@ -1326,7 +1439,7 @@ async function startServer() {
                     if (st.infoHash) magnetsByHash.set(st.infoHash, st.magnet);
                     if (st.infoHash && st.addedAt) addedAtMap.set(st.infoHash, st.addedAt);
                     try {
-                        const torrent = client.add(st.magnet, getTorrentAddOptions(st.magnet, settings.downloadPath), (torrent) => {
+                        const torrent = client.add(st.magnet, getTorrentAddOptions(st.magnet, restoredDir), (torrent) => {
                             const resolvedName = torrent.name || st.name || getNameFromMagnet(st.magnet);
                             if (resolvedName) namesMap.set(torrent.infoHash, resolvedName);
                             console.log(`  ✓ Restored: ${resolvedName || torrent.infoHash}`);
@@ -1400,7 +1513,8 @@ async function startServer() {
             uploaded: data.uploaded || 0,
             totalLength: data.totalLength || data.downloaded || 0,
             ratio: data.ratio || 0,
-            status: 'Completed'
+            status: 'Completed',
+            missing: !!data.missing
         }));
 
         io.emit('torrent-status', {
@@ -2189,16 +2303,23 @@ async function startServer() {
         const paused = pausedTorrents.get(infoHash);
 
         const candidates = [];
+        // Where this torrent's files actually live (survives download-path changes).
+        const dir = savedDirFor(infoHash);
 
-        if (active?.name) candidates.push(path.join(settings.downloadPath, active.name));
-        if (completed?.name) candidates.push(path.join(settings.downloadPath, completed.name));
-        if (paused?.name) candidates.push(path.join(settings.downloadPath, paused.name));
+        if (active?.name) candidates.push(path.join(dir, active.name));
+        if (completed?.name) candidates.push(path.join(dir, completed.name));
+        if (paused?.name) candidates.push(path.join(dir, paused.name));
+
+        // Fallback to the current global download path (legacy records without a
+        // stored path, or files that were manually moved into the new location).
+        const anyName = active?.name || completed?.name || paused?.name;
+        if (anyName && dir !== settings.downloadPath) candidates.push(path.join(settings.downloadPath, anyName));
 
         // Try deriving folder from active files if available.
         if (active?.files?.length) {
             const first = active.files[0];
             if (first?.path) {
-                const resolved = path.join(settings.downloadPath, first.path);
+                const resolved = path.join(active.path || dir, first.path);
                 candidates.push(path.dirname(resolved));
             }
         }
@@ -2327,10 +2448,12 @@ async function startServer() {
                 const videoFile = (torrent.files || []).find(f => videoExts.some(ext => f.name.toLowerCase().endsWith(ext)));
                 const rawName = videoFile?.name || torrent.name || '';
                 const searchName = rawName.replace(/\.[^.]+$/, '').replace(/[._+]+/g, ' ').trim();
-                // Put subtitle next to video file, or in torrent root folder
+                // Put subtitle next to video file, or in torrent root folder (use the
+                // torrent's own save dir so it lands beside the actual files).
+                const torrentDir = torrent.path || settings.downloadPath;
                 const destFolder = (torrent.files || []).length > 1
-                    ? path.join(settings.downloadPath, torrent.name)
-                    : settings.downloadPath;
+                    ? path.join(torrentDir, torrent.name)
+                    : torrentDir;
                 const lang = settings.subtitleLang || 'en';
                 console.log(`🎬 Auto-subtitle: "${searchName}" [${lang}] → ${destFolder}`);
                 try {
@@ -2398,10 +2521,14 @@ async function startServer() {
         const torrentName = torrent?.name || namesMap.get(hash) ||
             completedTorrents.get(hash)?.name ||
             pausedTorrents.get(hash)?.name || null;
+        // Capture where the files actually live BEFORE we clear the maps below,
+        // so delete targets the real folder even after a download-path change.
+        const savedDir = torrent?.path || savedDirFor(hash);
 
         pausedTorrents.delete(hash);
         completedTorrents.delete(hash);
         magnetsByHash.delete(hash);
+        savedPathByHash.delete(hash);
         syncToCloud('delete_torrent', { infoHash: hash });
         addedAtMap.delete(hash);
         pausedFilesByHash.delete(hash);
@@ -2410,7 +2537,12 @@ async function startServer() {
 
         const doDeleteFiles = () => {
             if (torrentName) {
-                const filePath = path.join(settings.downloadPath, torrentName);
+                // Prefer the torrent's real save dir; fall back to current path if the
+                // file isn't there (legacy record or manually-moved files).
+                let filePath = path.join(savedDir, torrentName);
+                if (!fs.existsSync(filePath) && savedDir !== settings.downloadPath) {
+                    filePath = path.join(settings.downloadPath, torrentName);
+                }
                 try {
                     if (fs.existsSync(filePath)) {
                         try {
@@ -2489,7 +2621,9 @@ async function startServer() {
             const magnet = data.magnet || magnetsByHash.get(hash) || `magnet:?xt=urn:btih:${hash}`;
             // Remove from paused AFTER ensuring we can add it
             try {
-                const torrent = client.add(magnet, getTorrentAddOptions(magnet, settings.downloadPath));
+                // Resume where the partial files actually live (not the current path),
+                // so a download-path change doesn't restart the download from scratch.
+                const torrent = client.add(magnet, getTorrentAddOptions(magnet, savedDirFor(hash)));
                 // Now safe to remove from paused map
                 pausedTorrents.delete(hash);
                 if (magnet) magnetsByHash.set(hash, magnet);
@@ -2552,7 +2686,9 @@ async function startServer() {
         if (!magnet) return res.status(400).json({ error: 'No magnet available to start seeding' });
 
         try {
-            const torrent = client.add(magnet, getTorrentAddOptions(magnet, settings.downloadPath));
+            // Seed from where the files actually are (not the current download path),
+            // so re-seeding a completed torrent after a path change doesn't re-download it.
+            const torrent = client.add(magnet, getTorrentAddOptions(magnet, savedDirFor(hash)));
             completedTorrents.delete(hash);
             magnetsByHash.set(hash, magnet);
             torrent.on('metadata', () => {
@@ -2627,7 +2763,12 @@ async function startServer() {
             return { source: 'torrent', torrent, files: vids.map(f => ({ name: f.name, length: f.length || 0, file: f })) };
         }
         const name = getTorrentName(hash);
-        const target = name ? path.join(settings.downloadPath, name) : null;
+        let target = name ? path.join(savedDirFor(hash), name) : null;
+        // Fall back to the current download path if the file isn't at the saved dir.
+        if (name && target && !fs.existsSync(target) && savedDirFor(hash) !== settings.downloadPath) {
+            const alt = path.join(settings.downloadPath, name);
+            if (fs.existsSync(alt)) target = alt;
+        }
         if (target && fs.existsSync(target)) {
             return { source: 'disk', files: listVideoFilesOnDisk(target) };
         }
@@ -2767,7 +2908,7 @@ async function startServer() {
         if (isNaN(idx) || idx < 0 || idx >= p.files.length) idx = pickDefaultIdx(p.files);
         const chosen = p.files[idx];
         const absPath = p.source === 'torrent'
-            ? path.join(settings.downloadPath, chosen.file.path)
+            ? path.join(p.torrent?.path || settings.downloadPath, chosen.file.path)
             : chosen.absPath;
         if (!openFileOnSystem(absPath)) return res.status(500).json({ error: 'Could not open file. It may still be downloading.' });
         res.json({ success: true });

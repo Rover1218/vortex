@@ -19,6 +19,9 @@ interface TorrentState {
     // true when the torrent is paused via per-file selection (every file paused)
     // — it is still live in the client, so individual files can still be resumed.
     filePaused?: boolean;
+    // true when a completed torrent's files are not on this machine (deleted, or a
+    // different PC than where it was downloaded) — Stream/Seed won't work.
+    missing?: boolean;
 }
 
 interface Settings {

@@ -6,7 +6,7 @@
     <title>Vortex Desktop</title>
     <style>
       @property --a { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
-      :root { color-scheme: dark; --amber: #f5a623; --amber2: #ffc04d; --teal: #2dd4a7; }
+      :root { color-scheme: dark; --amber: #7c6aff; --amber2: #39a0ff; --teal: #1fd6a3; }
       * { box-sizing: border-box; }
       html, body { height: 100%; }
       body {
@@ -21,7 +21,7 @@
       .bg::before, .bg::after {
         content: ''; position: absolute; border-radius: 50%; filter: blur(90px); opacity: 0.5;
       }
-      .bg::before { width: 60vw; height: 60vw; left: -10vw; top: -20vw; background: radial-gradient(circle, rgba(245,166,35,0.22), transparent 60%); animation: drift1 16s ease-in-out infinite; }
+      .bg::before { width: 60vw; height: 60vw; left: -10vw; top: -20vw; background: radial-gradient(circle, rgba(124,106,255,0.22), transparent 60%); animation: drift1 16s ease-in-out infinite; }
       .bg::after { width: 45vw; height: 45vw; right: -8vw; bottom: -15vw; background: radial-gradient(circle, rgba(45,212,167,0.12), transparent 60%); animation: drift2 20s ease-in-out infinite; }
       .grid { position: fixed; inset: 0; z-index: 0; opacity: 0.04;
         background-image: linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px);
@@ -37,30 +37,30 @@
       /* Top bar */
       .bar { display: flex; align-items: center; justify-content: space-between; }
       .brand { display: flex; align-items: center; gap: 13px; }
-      .logo { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(135deg, var(--amber), var(--amber2)); color: #09090b; font-weight: 900; font-size: 20px; box-shadow: 0 14px 34px -10px rgba(245,166,35,.6); }
+      .logo { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(135deg, var(--amber), var(--amber2)); color: #09090b; font-weight: 900; font-size: 20px; box-shadow: 0 14px 34px -10px rgba(124,106,255,.6); }
       .name { font-size: 19px; font-weight: 900; letter-spacing: -0.02em; }
       .tag { font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase; color: rgba(247,246,243,.45); margin-top: 2px; }
       .pill { display: inline-flex; align-items: center; gap: 9px; padding: 9px 15px; border-radius: 999px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.09); font-size: 12px; font-weight: 700; }
       .dot { width: 9px; height: 9px; border-radius: 999px; box-shadow: 0 0 0 4px rgba(255,255,255,.04); }
       .dot-teal { background: var(--teal); box-shadow: 0 0 12px 1px rgba(45,212,167,.6); animation: pulse 2s ease-in-out infinite; }
-      .dot-amber { background: var(--amber); box-shadow: 0 0 12px 1px rgba(245,166,35,.6); animation: pulse 2s ease-in-out infinite; }
+      .dot-amber { background: var(--amber); box-shadow: 0 0 12px 1px rgba(124,106,255,.6); animation: pulse 2s ease-in-out infinite; }
 
       /* Hero card with animated glow border */
       .hero { position: relative; border-radius: 26px; padding: 30px; display: flex; align-items: center; gap: 30px; background: rgba(20,20,24,.72); border: 1px solid rgba(255,255,255,.07); backdrop-filter: blur(14px); overflow: hidden; }
-      .hero::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; background: conic-gradient(from var(--a), transparent 0deg, rgba(245,166,35,.7) 50deg, transparent 130deg); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; animation: spin 7s linear infinite; pointer-events: none; }
+      .hero::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; background: conic-gradient(from var(--a), transparent 0deg, rgba(124,106,255,.7) 50deg, transparent 130deg); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; animation: spin 7s linear infinite; pointer-events: none; }
       .orb { position: relative; width: 130px; height: 130px; flex: none; display: grid; place-items: center; }
-      .orb::before { content: ''; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from var(--a), var(--amber), rgba(245,166,35,.08), var(--amber)); animation: spin 4.5s linear infinite; -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px)); mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px)); }
-      .orb .inner { width: 112px; height: 112px; border-radius: 50%; background: #0e0e11; display: grid; place-items: center; text-align: center; box-shadow: inset 0 0 36px rgba(245,166,35,.14); }
+      .orb::before { content: ''; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from var(--a), var(--amber), rgba(124,106,255,.08), var(--amber)); animation: spin 4.5s linear infinite; -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px)); mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px)); }
+      .orb .inner { width: 112px; height: 112px; border-radius: 50%; background: #0e0e11; display: grid; place-items: center; text-align: center; box-shadow: inset 0 0 36px rgba(124,106,255,.14); }
       .orb .pct { font-size: 13px; font-weight: 800; padding: 0 10px; line-height: 1.25; }
       .hero-main { min-width: 0; }
-      .eyebrow { display: inline-flex; align-items: center; gap: 9px; padding: 6px 12px; border-radius: 999px; background: rgba(245,166,35,.1); border: 1px solid rgba(245,166,35,.22); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.18em; color: var(--amber2); }
+      .eyebrow { display: inline-flex; align-items: center; gap: 9px; padding: 6px 12px; border-radius: 999px; background: rgba(124,106,255,.1); border: 1px solid rgba(124,106,255,.22); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.18em; color: var(--amber2); }
       h1 { margin: 16px 0 8px; font-size: 38px; line-height: 1.02; letter-spacing: -0.03em; font-weight: 900; }
       h1 span { color: var(--amber); }
       .hero-main p { margin: 0; color: rgba(247,246,243,.6); font-size: 14px; line-height: 1.6; max-width: 460px; }
       .actions { margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap; }
       a.btn, button { appearance: none; border: 0; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 9px; padding: 13px 20px; border-radius: 14px; font-weight: 800; font-size: 14px; transition: transform .18s ease, filter .18s ease; }
       a.btn:hover { transform: translateY(-2px); }
-      .primary { color: #09090b; background: linear-gradient(135deg, var(--amber), var(--amber2)); box-shadow: 0 16px 34px -12px rgba(245,166,35,.65); }
+      .primary { color: #09090b; background: linear-gradient(135deg, var(--amber), var(--amber2)); box-shadow: 0 16px 34px -12px rgba(124,106,255,.65); }
       .primary:hover { filter: brightness(1.06); }
       .ghost { color: #f7f6f3; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); }
       .ghost:hover { transform: translateY(-2px); filter: brightness(1.12); }
@@ -69,7 +69,7 @@
       .ghost.spin svg { animation: rot 1s linear infinite; }
       @keyframes rot { to { transform: rotate(360deg); } }
       .ustat { align-self: center; font-size: 12.5px; color: rgba(247,246,243,.6); font-weight: 600; }
-      .vchip { font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; background: rgba(245,166,35,.12); border: 1px solid rgba(245,166,35,.25); color: var(--amber2); vertical-align: middle; margin-left: 8px; }
+      .vchip { font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; background: rgba(124,106,255,.12); border: 1px solid rgba(124,106,255,.25); color: var(--amber2); vertical-align: middle; margin-left: 8px; }
 
       /* Stat tiles */
       .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }

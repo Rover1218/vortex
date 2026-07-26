@@ -23,6 +23,7 @@ export default function SettingsPage() {
     const [saved, setSaved] = useState(false);
     const [showBrowser, setShowBrowser] = useState(false);
     const [browserData, setBrowserData] = useState<any>(null);
+    const [pathInput, setPathInput] = useState(""); // type/paste a path directly
     const [browserLoading, setBrowserLoading] = useState(false);
     const panelClassName = "cine-card overflow-hidden";
 
@@ -113,13 +114,16 @@ export default function SettingsPage() {
         const parentOfDl = dlPath.includes('\\') ? dlPath.substring(0, dlPath.lastIndexOf('\\')) || 'C:\\' : dlPath.includes('/') ? dlPath.substring(0, dlPath.lastIndexOf('/')) || '/' : dlPath;
         const data = await browseFolders(startPath || parentOfDl);
         setBrowserData(data);
+        setPathInput(data?.current || startPath || parentOfDl);
         setBrowserLoading(false);
     };
 
     const navigateFolder = async (folderPath: string) => {
         setBrowserLoading(true);
         const data = await browseFolders(folderPath);
-        setBrowserData(data);
+        // If the path was invalid the engine returns nothing — keep the user where
+        // they are rather than blanking the browser.
+        if (data) { setBrowserData(data); setPathInput(data.current || folderPath); }
         setBrowserLoading(false);
     };
 
@@ -431,14 +435,38 @@ export default function SettingsPage() {
             {showBrowser && (
                 <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setShowBrowser(false)}>
                     <div className="bg-surface rounded-2xl border border-white/[0.06] w-full max-w-lg max-h-[80vh] flex flex-col shadow-cinema" onClick={e => e.stopPropagation()}>
-                        <div className="p-5 border-b border-white/[0.06] flex items-center justify-between">
-                            <div>
+                        <div className="p-5 border-b border-white/[0.06]">
+                            <div className="flex items-center justify-between mb-3">
                                 <h3 className="cine-title text-sm">Select Folder</h3>
-                                <p className="text-[10px] text-text-3 font-mono mt-1 truncate max-w-[350px]">{browserData?.current || '...'}</p>
+                                <button onClick={() => setShowBrowser(false)} className="btn-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                                </button>
                             </div>
-                            <button onClick={() => setShowBrowser(false)} className="btn-icon">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                            </button>
+                            {/* Type or paste a path directly — no need to click through folders */}
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={pathInput}
+                                    onChange={(e) => setPathInput(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter" && pathInput.trim()) navigateFolder(pathInput.trim()); }}
+                                    placeholder="Paste a path, e.g. F:\Movies"
+                                    spellCheck={false}
+                                    className="cine-input flex-1 font-mono text-xs !py-2"
+                                />
+                                <button onClick={() => pathInput.trim() && navigateFolder(pathInput.trim())}
+                                    className="px-4 py-2 rounded-xl bg-accent/10 text-accent border border-accent/20 text-xs font-semibold hover:bg-accent/20 transition-all shrink-0">
+                                    Go
+                                </button>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                {['C:\\', 'D:\\', 'E:\\', 'F:\\'].map((drive) => (
+                                    <button key={drive} onClick={() => navigateFolder(drive)}
+                                        className="px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.06] text-[10px] font-mono text-text-2 hover:text-text-1 hover:bg-white/[0.06] transition-all">
+                                        {drive}
+                                    </button>
+                                ))}
+                                <span className="text-[10px] text-text-3 font-mono self-center ml-1 truncate max-w-[180px]">{browserData?.current || ''}</span>
+                            </div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-3 space-y-0.5">

@@ -425,6 +425,7 @@ export default function DownloadsPage() {
                         const totalSeeded = t.uploaded || 0;
                         const barFill = isDone ? "bg-teal" : isPaused ? "bg-warning" : "bg-accent";
                         const isActive = t.status === "Downloading" || t.status === "Seeding"; // has real-time files
+                        const isMissing = !!t.missing; // completed but files not on this machine
 
                         return (
                             <div key={t.infoHash} style={{ contentVisibility: 'auto', containIntrinsicSize: '140px', willChange: 'transform' }} className="group rounded-2xl bg-surface border border-white/[0.06] hover:border-accent/40 transition-all overflow-hidden shadow-cinema">
@@ -436,8 +437,8 @@ export default function DownloadsPage() {
                                         <PosterThumb title={t.name} className="w-12 aspect-[2/3]" />
                                         <div className="space-y-2 min-w-0 flex-1">
                                             <div className="flex items-center gap-3">
-                                                <span className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${isCompleted ? "bg-teal/10 text-teal border border-teal/20" : isSeeding ? "bg-teal/10 text-teal border border-teal/20" : isPaused ? "bg-warning/10 text-warning border border-warning/20" : "bg-accent/10 text-accent border border-accent/20"}`}>{t.status}</span>
-                                                <h3 className="text-sm font-bold text-text-1 truncate">{t.name}</h3>
+                                                <span className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${isMissing ? "bg-danger/10 text-danger border border-danger/20" : isCompleted ? "bg-teal/10 text-teal border border-teal/20" : isSeeding ? "bg-teal/10 text-teal border border-teal/20" : isPaused ? "bg-warning/10 text-warning border border-warning/20" : "bg-accent/10 text-accent border border-accent/20"}`}>{isMissing ? "File missing" : t.status}</span>
+                                                <h3 className={`text-sm font-bold truncate ${isMissing ? "text-text-3" : "text-text-1"}`}>{t.name}</h3>
                                             </div>
                                             <div className="flex flex-wrap gap-5 text-[11px] text-text-3">
                                                 {!isDone && <span>Peers <span className="text-text-2 font-mono font-bold">{t.numPeers}</span></span>}
@@ -456,8 +457,8 @@ export default function DownloadsPage() {
                                                 </div>
                                             )}
                                             <div className="flex gap-1.5">
-                                                {/* Stream in browser — for anything with downloadable data */}
-                                                {(isActive || isDone) && (
+                                                {/* Stream in browser — for anything with downloadable data (not missing files) */}
+                                                {(isActive || isDone) && !isMissing && (
                                                     <button onClick={() => setStreamTarget({ infoHash: t.infoHash, name: t.name })}
                                                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-accent text-black hover:bg-accent-strong transition-all"
                                                         title="Stream in browser">
@@ -478,7 +479,7 @@ export default function DownloadsPage() {
                                                         <IconStop /> Stop
                                                     </button>
                                                 )}
-                                                {isCompleted && (
+                                                {isCompleted && !isMissing && (
                                                     <button onClick={() => startSeeding(t.infoHash)}
                                                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-teal/10 text-teal hover:bg-teal/20 border border-teal/20 transition-all">
                                                         <IconPlay /> Seed
