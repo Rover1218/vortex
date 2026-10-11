@@ -10,6 +10,14 @@
 
 > **Local-first by design.** Vortex hosts, serves, and streams nothing itself. The engine runs on *your* computer; your files live on *your* disk. The cloud only syncs your settings and library index across your devices.
 
+<p align="center">
+  <a href="docs/vortex-launch.mp4">
+    <img src="docs/vortex-launch.jpg" alt="Vortex launch video — click to play" width="820" />
+  </a>
+  <br />
+  <sub>▶ <a href="docs/vortex-launch.mp4">Watch the 21-second launch video</a></sub>
+</p>
+
 <!-- 📸 SCREENSHOT: replace with a wide hero shot of the dashboard (Search or Downloads page) -->
 <p align="center">
   <img src="docs/screenshots/hero.png" alt="Vortex dashboard" width="820" />

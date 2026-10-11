@@ -54,3 +54,6 @@ dist-release/
 public/downloads/README-engine.txt
 public/downloads/*.exe
 public/downloads/vortex-firebase-adminsdk.json
+
+# /brag launch-video workspace (renders, stems, scripts)
+brag-output*/
